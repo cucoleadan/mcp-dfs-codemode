@@ -58,6 +58,12 @@ All tools from the upstream DataForSEO MCP server are available as `codemode.<to
 
 Click the button above — it will fork this repo and deploy the worker to your Cloudflare account.
 
+After the initial deploy completes, set your credentials in the Cloudflare dashboard:
+
+1. Go to **Workers & Pages** → **mcp-dfs-codemode** → **Settings** → **Variables**
+2. Add two **secrets**: `DATAFORSEO_USERNAME` and `DATAFORSEO_PASSWORD`
+3. Go to the **Deployments** tab and retry the last deployment
+
 ### Manual deploy
 
 ```bash
