@@ -1,8 +1,7 @@
 {
-  // Tell editors / Wrangler what to validate against
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "dataforseo-mcp-worker",
-  "main": "build/worker/worker/index-worker.js",
+  "name": "mcp-dfs-codemode",
+  "main": "build/worker/worker/index-worker-codemode.js",
   "compatibility_date": "2025-07-05",
   "compatibility_flags": ["nodejs_compat"],
   "minify": true,
@@ -12,22 +11,11 @@
   "vars": {
     "ENABLED_MODULES": null,
     "DATAFORSEO_FULL_RESPONSE": "false",
-	"DATAFORSEO_SIMPLE_FILTER":"true"
+    "DATAFORSEO_SIMPLE_FILTER": "true"
   },
-  	"durable_objects": {
-		"bindings": [
-			{
-				"class_name": "DataForSEOMcpAgent",
-				"name": "MCP_OBJECT"
-			}
-		]
-	},
-  	"migrations": [
-		{
-			"new_sqlite_classes": [
-				"DataForSEOMcpAgent"
-			],
-			"tag": "v1"
-		}
-	],
+  "worker_loaders": [
+    {
+      "binding": "LOADER"
+    }
+  ]
 }

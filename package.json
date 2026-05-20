@@ -1,10 +1,10 @@
 {
-  "name": "dataforseo-mcp-server",
-  "version": "2.9.4",
+  "name": "mcp-dfs-codemode",
+  "version": "1.0.0",
   "main": "build/main/main/index.js",
   "type": "module",
   "bin": {
-    "dataforseo-mcp-server": "./build/main/main/cli.js"
+    "mcp-dfs-codemode": "./build/main/main/cli.js"
   },
   "scripts": {
     "build": "tsc && node -e \"require('fs').chmodSync('build/main/main/cli.js', '755')\"",
@@ -27,29 +27,34 @@
     "dataforseo",
     "mcp",
     "modelcontextprotocol",
-    "api",
-    "server",
+    "codemode",
+    "cloudflare",
+    "workers",
     "seo",
-    "sse",
-    "streaming"
+    "api"
   ],
-  "author": "dataforseo",
+  "author": "chillibot-chillital",
   "license": "Apache-2.0",
-  "description": "A Model Context Protocol (MCP) server for the DataForSEO API, enabling modular and extensible integration of DataForSEO endpoints with support for both HTTP and SSE transports.",
+  "description": "DataForSEO MCP server wrapped with Cloudflare Codemode — LLMs compose multi-step SEO API calls as code in a secure sandbox.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dataforseo/mcp-server-typescript.git"
+    "url": "git+https://github.com/chillibot-chillital/mcp-dfs-codemode.git"
   },
-  "homepage": "https://github.com/dataforseo/mcp-server-typescript#readme",
+  "homepage": "https://github.com/chillibot-chillital/mcp-dfs-codemode#readme",
+  "bugs": {
+    "url": "https://github.com/chillibot-chillital/mcp-dfs-codemode/issues"
+  },
   "engines": {
     "node": ">=20.0.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260520.1",
     "@types/express": "^5.0.1",
     "@types/node": "^22.10.0",
     "typescript": "^5.7.2"
   },
   "dependencies": {
+    "@cloudflare/codemode": "^0.3.7",
     "@modelcontextprotocol/sdk": "^1.4.0",
     "agents": "^0.0.101",
     "express": "^4.18.2",
