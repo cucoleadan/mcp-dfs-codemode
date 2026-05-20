@@ -7,10 +7,10 @@
     "mcp-dfs-codemode": "./build/main/main/cli.js"
   },
   "scripts": {
-    "build": "tsc && node -e \"require('fs').chmodSync('build/main/main/cli.js', '755')\"",
+    "build": "tsc && node -e \"require('fs').chmodSync('build/main/main/cli.js', '755')\" && npm run worker:build",
     "start": "node build/main/main/index.js",
     "dev": "tsc --watch",
-    "prepare": "npm run build",
+    "prepare": "npm run worker:prebuild",
     "http": "node build/main/main/index-http.js",
     "sse": "node build/main/main/index-sse-http.js",
     "cli": "node build/main/main/cli.js",
