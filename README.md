@@ -12,17 +12,14 @@ Instead of the MCP client making 10+ round trips for a multi-step SEO workflow, 
 
 ```js
 async () => {
-  const serp = await codemode.serp_google_organic_live_advanced({
+  const serp = await codemode.serp_organic_live_advanced({
     keyword: "running shoes",
-    location_code: 2840,
-    language_code: "en"
+    location_name: "United States"
   });
   const firstUrl = serp?.items?.[0]?.url;
   if (firstUrl) {
-    const backlinks = await codemode.backlinks_backlinks_summary_live({
-      target: firstUrl
-    });
-    return { serp, backlinks };
+    const bl = await codemode.backlinks_summary({ target: firstUrl });
+    return { serp, backlinks_summary: bl };
   }
   return { serp };
 }
@@ -30,87 +27,121 @@ async () => {
 
 This means: one tool call → one LLM step → any number of API calls, conditionals, and data transformations.
 
-## Features
-
-- **Codemode-powered**: All DataForSEO APIs exposed through a single `code` tool — LLMs write JavaScript, not individual tool calls
-- **Sandboxed execution**: Generated code runs in an isolated Worker — `fetch()` and network are blocked by default
-- **Full DataForSEO API coverage**: SERP, Keywords, Backlinks, OnPage, Labs, Business Data, Domain Analytics, Content Analysis, AI Optimization
-- **Cloudflare Workers**: Serverless, edge-distributed, auto-scaling
-- **Upstream sync**: Weekly automated PRs from `dataforseo/mcp-server-typescript`
-
-## Available Tools
-
-All tools from the upstream DataForSEO MCP server are available as `codemode.<toolName>({...})` inside the code sandbox:
-
-- **AI_OPTIMIZATION**: keyword discovery, conversational optimization, LLM benchmarking
-- **SERP**: real-time Google, Bing, Yahoo results
-- **KEYWORDS_DATA**: search volume, CPC, clickstream data
-- **ONPAGE**: crawl websites for on-page SEO metrics
-- **DATAFORSEO_LABS**: proprietary keyword/SERP/domain data
-- **BACKLINKS**: referring domains, anchor text, link quality
-- **BUSINESS_DATA**: Google, Trustpilot, Tripadvisor data
-- **DOMAIN_ANALYTICS**: traffic, tech stack, Whois
-- **CONTENT_ANALYSIS**: brand monitoring, sentiment, citations
-
-## Deploy to Cloudflare
+## Deploy
 
 ### One-click deploy
 
-Click the button above — it will fork this repo and deploy the worker to your Cloudflare account.
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cucoleadan/mcp-dfs-codemode)
 
-After the initial deploy completes, set your credentials in the Cloudflare dashboard:
+After deploy, set your secrets in **Cloudflare Dashboard → Workers → mcp-dfs-codemode → Settings → Variables**.
 
-1. Go to **Workers & Pages** → **mcp-dfs-codemode** → **Settings** → **Variables**
-2. Add two **secrets**: `DATAFORSEO_USERNAME` and `DATAFORSEO_PASSWORD`
-3. Go to the **Deployments** tab and retry the last deployment
+### Two deployment modes
+
+#### Mode A: Single-tenant (env vars)
+
+Set these **secrets** (recommended for personal use):
+
+| Secret | Description |
+|--------|-------------|
+| `DATAFORSEO_USERNAME` | Your DataForSEO email |
+| `DATAFORSEO_PASSWORD` | Your DataForSEO password |
+| `MCP_ACCESS_TOKEN` | A secret token for URL auth (e.g. `sk-your-random-token`) |
+
+Then share: `https://mcp-dfs-codemode.your-subdomain.workers.dev/mcp/<token>`
+
+If `MCP_ACCESS_TOKEN` is not set, plain `/mcp` still works with env creds (backward compatible).
+
+#### Mode B: Multi-tenant (KV + browser UI)
+
+No DataForSEO secrets needed. Add a **KV namespace** named `CRED_CONFIG`:
+
+1. In Cloudflare Dashboard, go to **Workers & Pages → mcp-dfs-codemode → Settings → KV**
+2. Click **Add binding** → Variable name: `CRED_CONFIG`, KV namespace: create a new one
+3. Visit `https://mcp-dfs-codemode.your-subdomain.workers.dev/` in a browser
+4. Enter your DataForSEO email, password, and an access token
+5. Use: `https://mcp-dfs-codemode.your-subdomain.workers.dev/mcp/<your-token>`
+
+Multiple users can configure their own credentials — each with their own token.
 
 ### Manual deploy
 
 ```bash
-# Install dependencies
 npm install --legacy-peer-deps
 
-# Set credentials
+# Mode A: set your creds as secrets
 npx wrangler secret put DATAFORSEO_USERNAME
 npx wrangler secret put DATAFORSEO_PASSWORD
+npx wrangler secret put MCP_ACCESS_TOKEN   # optional, enables token auth
+
+# Mode B: create KV namespace (skip secrets)
+npx wrangler kv namespace create CRED_CONFIG
+# Then update the id in wrangler.jsonc
 
 # Build and deploy
-npm run worker:build
-npx wrangler deploy
+npm run worker:deploy
 ```
 
-### Worker endpoints
+### Usage with Claude
 
-| Endpoint | Description |
-|----------|-------------|
-| `POST /mcp` | MCP Streamable HTTP transport (single `code` tool) |
-| `GET /health` | Health check |
-
-## Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATAFORSEO_USERNAME` | Yes | DataForSEO API login email |
-| `DATAFORSEO_PASSWORD` | Yes | DataForSEO API password |
-| `ENABLED_MODULES` | No | Comma-separated module names (default: all) |
-| `DATAFORSEO_FULL_RESPONSE` | No | `"true"` for raw API responses |
-
-## Usage with Claude / Cursor / Any MCP Client
+**Claude Desktop** (recommended):
 
 ```json
 {
   "mcpServers": {
-    "dfs-codemode": {
-      "type": "http",
-      "url": "https://your-worker.workers.dev/mcp"
+    "dfs": {
+      "command": "npx",
+      "args": ["mcp-remote", "https://mcp-dfs-codemode.your-subdomain.workers.dev/mcp/sk-your-token"]
     }
   }
 }
 ```
 
-## Syncing Upstream Changes
+**Claude Web** (Add custom connector):
 
-This repo automatically syncs from `dataforseo/mcp-server-typescript` every Monday at 06:00 UTC via GitHub Actions. A PR is opened with upstream changes for review.
+| Field | Value |
+|-------|-------|
+| URL | `https://mcp-dfs-codemode.your-subdomain.workers.dev/mcp/sk-your-token` |
+| OAuth | Not needed (token is in the URL) |
+
+## Auth flow
+
+```
+Client → /mcp/<token> → Worker validates token → uses stored DFS creds → handles MCP
+```
+
+- Token checked against `MCP_ACCESS_TOKEN` env var first
+- If not set, falls back to `CRED_CONFIG` KV lookup
+- If neither is configured, returns 401
+
+## Features
+
+- **Codemode-powered**: All DataForSEO APIs through a single `code` tool
+- **Sandboxed execution**: Generated code runs in isolated Worker — network blocked
+- **Supports Claude, Cursor, Copilot, any MCP client**: Streamable HTTP transport
+- **Two auth modes**: Single-tenant (env vars) or multi-tenant (KV + config UI)
+- **~745 tokens for tool list**: Compact description, no schema bloat
+- **Upstream sync**: Weekly PRs from `dataforseo/mcp-server-typescript`
+
+## Available tools
+
+All tools available as `codemode.<toolName>({...})`:
+
+- **AI Optimization**: keyword discovery, LLM benchmarking, ChatGPT scraper
+- **SERP**: Google, Bing, Yahoo organic search results
+- **Keywords Data**: search volume, CPC, Google Trends, DFS Trends
+- **OnPage**: content parsing, Lighthouse, page optimization
+- **DataForSEO Labs**: ranked keywords, competitors, keyword ideas, domain analytics
+- **Backlinks**: summary, anchors, competitors, bulk ops
+- **Business Data**: Google Maps business listings
+- **Domain Analytics**: Whois, technology stack
+- **Content Analysis**: citation search, phrase trends
+- **Merchant**: Amazon product search, ASIN lookup
+
+## Testing
+
+```bash
+npm test
+```
 
 ## License
 

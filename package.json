@@ -10,6 +10,8 @@
     "build": "tsc && node -e \"require('fs').chmodSync('build/main/main/cli.js', '755')\" && npm run worker:build",
     "start": "node build/main/main/index.js",
     "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "prepare": "npm run worker:prebuild",
     "http": "node build/main/main/index-http.js",
     "sse": "node build/main/main/index-sse-http.js",
@@ -48,10 +50,12 @@
     "node": ">=20.0.0"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.16.7",
     "@cloudflare/workers-types": "^4.20260520.1",
     "@types/express": "^5.0.1",
     "@types/node": "^22.10.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.7"
   },
   "dependencies": {
     "@cloudflare/codemode": "^0.3.7",

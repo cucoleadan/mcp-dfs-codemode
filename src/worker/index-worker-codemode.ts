@@ -27,41 +27,26 @@ const MODULE_LABELS: Record<string, string> = {
   MerchantApiModule: "Merchant",
 };
 
-const CORE_TOOL_PATTERNS = [
-  /^(?!.*_(?:locations?|filters?|models?)$)/,
-];
-
 function buildToolRegistryDescription(modules: BaseModule[]): string {
   const lines: string[] = [];
   modules.forEach((module) => {
     const label = MODULE_LABELS[module.constructor.name] || module.constructor.name;
     const tools = module.getTools();
     const names = Object.keys(tools)
-      .filter((n) => CORE_TOOL_PATTERNS[0].test(n))
+      .filter((n) => /^(?!.*_(?:locations?|filters?|models?)$)/.test(n))
       .map((n) => n.replace(/^.+\./, ""));
     if (names.length === 0) return;
-
-    // One-liner per module: comma-separated tool names
     lines.push(`  ${label}: ${names.join(", ")}`);
   });
   return lines.join("\n");
 }
 
-function createClientAndModules(env: Env) {
-  const client = new DataForSEOClient({
-    authHeader: buildBasicAuthHeader(
-      env.DATAFORSEO_USERNAME || "",
-      env.DATAFORSEO_PASSWORD || "",
-    ),
-  });
-  const enabledModules = EnabledModulesSchema.parse(env.ENABLED_MODULES);
-  const modules = ModuleLoaderService.loadModules(client, enabledModules);
-  return { client, modules };
+function createClient(login: string, password: string): DataForSEOClient {
+  return new DataForSEOClient({ authHeader: buildBasicAuthHeader(login, password) });
 }
 
-function createUpstreamMcpServer(env: Env, modules: BaseModule[]): McpServer {
+function createUpstreamMcpServer(modules: BaseModule[]): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version });
-
   modules.forEach((module) => {
     const tools = module.getTools();
     Object.entries(tools).forEach(([name, tool]) => {
@@ -69,68 +54,158 @@ function createUpstreamMcpServer(env: Env, modules: BaseModule[]): McpServer {
       const schema = z.object(typedTool.params);
       server.tool(name, typedTool.description, schema.shape, typedTool.handler);
     });
-
     const prompts = module.getPrompts();
     Object.entries(prompts).forEach(([name, prompt]) => {
       server.registerPrompt(
         name,
-        {
-          description: prompt.description,
-          argsSchema: prompt.params,
-        },
+        { description: prompt.description, argsSchema: prompt.params },
         prompt.handler,
       );
     });
   });
-
   return server;
+}
+
+function getModules(login: string, password: string, modulesFilter: string | null): BaseModule[] {
+  const client = createClient(login, password);
+  return ModuleLoaderService.loadModules(client, EnabledModulesSchema.parse(modulesFilter));
+}
+
+function renderConfigUI(error?: string, saved?: boolean): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP DFS Codemode — Configure</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:480px;margin:40px auto;padding:0 16px}
+  h1{font-size:1.4rem}
+  label{display:block;margin:12px 0 4px;font-weight:600}
+  input{width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box}
+  button{margin-top:16px;padding:10px 20px;background:#0051ff;color:#fff;border:none;border-radius:6px;font-size:1rem;cursor:pointer}
+  button:hover{background:#003dbf}
+  .error{color:#d00;padding:8px;background:#fee;border-radius:6px;margin:8px 0}
+  .success{color:#080;padding:8px;background:#efe;border-radius:6px;margin:8px 0}
+  code{background:#f4f4f4;padding:2px 6px;border-radius:4px;font-size:.9rem}
+</style>
+</head>
+<body>
+  <h1>MCP DFS Codemode</h1>
+  <p>Enter your DataForSEO credentials and choose an access token for your MCP URL.</p>
+  ${error ? `<div class="error">${error}</div>` : ""}
+  ${saved ? `<div class="success">Saved! Use your MCP URL:<br><code>/mcp/<your-token></code></div>` : ""}
+  <form method="POST" action="/configure">
+    <label for="username">DataForSEO Email</label>
+    <input type="email" id="username" name="username" required autocomplete="email">
+    <label for="password">DataForSEO Password</label>
+    <input type="password" id="password" name="password" required autocomplete="current-password">
+    <label for="token">Access Token</label>
+    <input type="text" id="token" name="token" required minlength="8" placeholder="sk-your-secret-token" autocomplete="off">
+    <button type="submit">Save &amp; Activate</button>
+  </form>
+</body>
+</html>`;
+}
+
+function jsonError(code: number, message: string, status: number): Response {
+  return new Response(
+    JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }),
+    { status, headers: { "Content-Type": "application/json" } },
+  );
 }
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const path = url.pathname;
 
-    if (url.pathname === "/health" && request.method === "GET") {
+    if (path === "/health" && request.method === "GET") {
       return new Response(
-        JSON.stringify({
-          status: "healthy",
-          server: SERVER_NAME,
-          version,
-          codemode: true,
-        }),
+        JSON.stringify({ status: "healthy", server: SERVER_NAME, version, codemode: true }),
         { headers: { "Content-Type": "application/json" } },
       );
     }
 
-    if (!env.DATAFORSEO_USERNAME || !env.DATAFORSEO_PASSWORD) {
-      if (url.pathname === "/mcp") {
-        return new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            error: {
-              code: -32001,
-              message: "DataForSEO credentials not configured in worker environment variables",
-            },
-            id: null,
-          }),
-          {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
+    // Config UI — show form on GET, save credentials on POST
+    if (path === "/" || path === "/configure") {
+      if (!env.CRED_CONFIG) {
+        return new Response("KV namespace (CRED_CONFIG) not configured. Add a KV binding in Cloudflare Dashboard.", {
+          status: 200,
+          headers: { "Content-Type": "text/plain" },
+        });
+      }
+      if (request.method === "GET") {
+        return new Response(renderConfigUI(), { headers: { "Content-Type": "text/html" } });
+      }
+      if (request.method === "POST") {
+        try {
+          const form = await request.formData();
+          const username = form.get("username")?.toString().trim() || "";
+          const password = form.get("password")?.toString() || "";
+          const token = form.get("token")?.toString().trim() || "";
+          if (!username || !password || token.length < 8) {
+            return new Response(renderConfigUI("All fields required. Token must be at least 8 characters."), {
+              headers: { "Content-Type": "text/html" },
+            });
+          }
+          await env.CRED_CONFIG.put(token, JSON.stringify({ username, password }));
+          return new Response(renderConfigUI(undefined, true), {
+            headers: { "Content-Type": "text/html" },
+          });
+        } catch {
+          return new Response(renderConfigUI("Invalid form submission."), {
+            headers: { "Content-Type": "text/html" },
+          });
+        }
       }
     }
 
-    if (url.pathname === "/mcp") {
-      const { modules } = createClientAndModules(env);
-      const upstreamServer = createUpstreamMcpServer(env, modules);
-      const executor = new DynamicWorkerExecutor({ loader: env.LOADER });
-      const toolDescriptions = buildToolRegistryDescription(modules);
+    // Resolve credentials
+    let dfsUsername: string | undefined;
+    let dfsPassword: string | undefined;
 
-      const codemodeServer = await codeMcpServer({
-        server: upstreamServer,
-        executor,
-        description: `DataForSEO toolchain. Each tool accepts a JSON object — params are validated server-side, so pass what you need.
+    const isTokenPath = path.startsWith("/mcp/");
+    const isPlainMCP = path === "/mcp";
+
+    if (isTokenPath) {
+      const token = path.slice(5);
+      if (!token) return new Response("Not found", { status: 404 });
+
+      if (env.MCP_ACCESS_TOKEN) {
+        if (token !== env.MCP_ACCESS_TOKEN) {
+          return jsonError(-32001, "Invalid access token", 401);
+        }
+        dfsUsername = env.DATAFORSEO_USERNAME;
+        dfsPassword = env.DATAFORSEO_PASSWORD;
+      } else if (env.CRED_CONFIG) {
+        const stored = await env.CRED_CONFIG.get(token, "json") as Record<string, string> | null;
+        if (!stored) return jsonError(-32001, "Invalid access token", 401);
+        dfsUsername = stored.username;
+        dfsPassword = stored.password;
+      } else {
+        return jsonError(-32001, "No credential source. Set DATAFORSEO_USERNAME/PASSWORD or configure CRED_CONFIG KV.", 500);
+      }
+    } else if (isPlainMCP) {
+      if (env.MCP_ACCESS_TOKEN || env.CRED_CONFIG) {
+        return jsonError(-32001, "Access token required. Use /mcp/<your-token>", 401);
+      }
+      dfsUsername = env.DATAFORSEO_USERNAME;
+      dfsPassword = env.DATAFORSEO_PASSWORD;
+    }
+
+    if (!dfsUsername || !dfsPassword) return new Response("Not found", { status: 404 });
+
+    // Handle MCP request
+    const modules = getModules(dfsUsername, dfsPassword, env.ENABLED_MODULES);
+    const upstreamServer = createUpstreamMcpServer(modules);
+    const executor = new DynamicWorkerExecutor({ loader: env.LOADER });
+    const toolDescriptions = buildToolRegistryDescription(modules);
+
+    const codemodeServer = await codeMcpServer({
+      server: upstreamServer,
+      executor,
+      description: `DataForSEO toolchain. Each tool accepts a JSON object.
 
 ${toolDescriptions}
 
@@ -144,13 +219,10 @@ async () => {
   const s = await codemode.serp_organic_live_advanced({keyword: "shoes", location_name: "United States", language_code: "en"});
   return s;
 }`,
-      });
+    });
 
-      const transport = new WebStandardStreamableHTTPServerTransport();
-      codemodeServer.connect(transport);
-      return transport.handleRequest(request);
-    }
-
-    return new Response("Not found", { status: 404 });
+    const transport = new WebStandardStreamableHTTPServerTransport();
+    codemodeServer.connect(transport);
+    return transport.handleRequest(request);
   },
 };
