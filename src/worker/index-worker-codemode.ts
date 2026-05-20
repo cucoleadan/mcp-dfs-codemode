@@ -14,14 +14,31 @@ globalThis.__PACKAGE_NAME__ = name;
 
 const SERVER_NAME = `${name} (Codemode)`;
 
+const MODULE_LABELS: Record<string, string> = {
+  AiOptimizationApiModule: "AI Optimization",
+  SerpApiModule: "SERP",
+  KeywordsDataApiModule: "Keywords Data",
+  OnPageApiModule: "OnPage",
+  DataForSEOLabsApi: "DataForSEO Labs",
+  BacklinksApiModule: "Backlinks",
+  BusinessDataApiModule: "Business Data",
+  DomainAnalyticsApiModule: "Domain Analytics",
+  ContentAnalysisApiModule: "Content Analysis",
+  MerchantApiModule: "Merchant",
+};
+
 function buildToolRegistryDescription(modules: BaseModule[]): string {
   const lines: string[] = [];
   modules.forEach((module) => {
+    const label = MODULE_LABELS[module.constructor.name] || module.constructor.name;
     const tools = module.getTools();
-    Object.entries(tools).forEach(([toolName, tool]) => {
+    const toolNames = Object.entries(tools).map(([toolName, tool]) => {
       const t = tool as ToolDefinition;
-      lines.push(`  - codemode.${toolName}: ${t.description}`);
+      const params = Object.keys(t.params).join(", ");
+      return `    codemode.${toolName}(${params})`;
     });
+    lines.push(`  ${label}:`);
+    lines.push(...toolNames);
   });
   return lines.join("\n");
 }
@@ -109,30 +126,22 @@ export default {
       const codemodeServer = await codeMcpServer({
         server: upstreamServer,
         executor,
-        description: `DataForSEO API orchestrator. Write JavaScript to compose SEO data tool calls as code.
+        description: `DataForSEO API orchestrator. Call tools as codemode.<toolName>({param1, param2, ...}). Chain multiple calls in one function.
 
-Available tools (use as codemode.<toolName>({...})):
 ${toolDescriptions}
 
 Rules:
-- All tool names use underscores (e.g., serp_google_organic_live_advanced)
-- Each tool returns structured data — chain multiple calls, filter results in code
-- fetch() and network access are blocked in the sandbox
-- Return an object with the results you want the LLM to see
+- All tool names use underscores
+- fetch() and network access are blocked inside the sandbox
+- Return an object with results you want the LLM to see
 
-Example — fetch SERP + backlinks for the top result:
+Example — SERP then backlinks for top result:
 async () => {
-  const serp = await codemode.serp_google_organic_live_advanced({
-    keyword: "running shoes",
-    location_code: 2840,
-    language_code: "en"
-  });
-  const firstUrl = serp?.items?.[0]?.url;
-  if (firstUrl) {
-    const backlinks = await codemode.backlinks_backlinks_summary_live({
-      target: firstUrl
-    });
-    return { serp, backlinks };
+  const serp = await codemode.serp_organic_live_advanced({keyword: "running shoes", location_name: "United States", language_code: "en"});
+  const url = serp?.items?.[0]?.url;
+  if (url) {
+    const bl = await codemode.backlinks_summary({target: url});
+    return { serp, backlinks_summary: bl };
   }
   return { serp };
 }`,
