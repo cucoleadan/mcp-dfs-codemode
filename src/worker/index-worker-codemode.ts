@@ -27,18 +27,22 @@ const MODULE_LABELS: Record<string, string> = {
   MerchantApiModule: "Merchant",
 };
 
+const CORE_TOOL_PATTERNS = [
+  /^(?!.*_(?:locations?|filters?|models?)$)/,
+];
+
 function buildToolRegistryDescription(modules: BaseModule[]): string {
   const lines: string[] = [];
   modules.forEach((module) => {
     const label = MODULE_LABELS[module.constructor.name] || module.constructor.name;
     const tools = module.getTools();
-    const toolNames = Object.entries(tools).map(([toolName, tool]) => {
-      const t = tool as ToolDefinition;
-      const params = Object.keys(t.params).join(", ");
-      return `    codemode.${toolName}(${params})`;
-    });
-    lines.push(`  ${label}:`);
-    lines.push(...toolNames);
+    const names = Object.keys(tools)
+      .filter((n) => CORE_TOOL_PATTERNS[0].test(n))
+      .map((n) => n.replace(/^.+\./, ""));
+    if (names.length === 0) return;
+
+    // One-liner per module: comma-separated tool names
+    lines.push(`  ${label}: ${names.join(", ")}`);
   });
   return lines.join("\n");
 }
@@ -126,24 +130,19 @@ export default {
       const codemodeServer = await codeMcpServer({
         server: upstreamServer,
         executor,
-        description: `DataForSEO API orchestrator. Call tools as codemode.<toolName>({param1, param2, ...}). Chain multiple calls in one function.
+        description: `DataForSEO toolchain. Each tool accepts a JSON object — params are validated server-side, so pass what you need.
 
 ${toolDescriptions}
 
 Rules:
-- All tool names use underscores
-- fetch() and network access are blocked inside the sandbox
-- Return an object with results you want the LLM to see
+- All tools use underscore_names
+- No fetch()/network in sandbox
+- Return an object for the LLM
 
-Example — SERP then backlinks for top result:
+Example:
 async () => {
-  const serp = await codemode.serp_organic_live_advanced({keyword: "running shoes", location_name: "United States", language_code: "en"});
-  const url = serp?.items?.[0]?.url;
-  if (url) {
-    const bl = await codemode.backlinks_summary({target: url});
-    return { serp, backlinks_summary: bl };
-  }
-  return { serp };
+  const s = await codemode.serp_organic_live_advanced({keyword: "shoes", location_name: "United States", language_code: "en"});
+  return s;
 }`,
       });
 
