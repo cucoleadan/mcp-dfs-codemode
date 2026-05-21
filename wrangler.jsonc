@@ -5,19 +5,13 @@
   "compatibility_date": "2025-07-05",
   "compatibility_flags": ["nodejs_compat"],
   "minify": true,
-  "secrets": {
-    "required": ["DATAFORSEO_USERNAME", "DATAFORSEO_PASSWORD"]
-  },
-  "kv_namespaces": [
-    {
-      "binding": "CRED_CONFIG"
-    }
-  ],
   "vars": {
     "ENABLED_MODULES": null,
     "DATAFORSEO_FULL_RESPONSE": "false",
     "DATAFORSEO_SIMPLE_FILTER": "true",
-    "MCP_ACCESS_TOKEN": null
+    "MCP_ACCESS_TOKEN": null,
+    "DATAFORSEO_USERNAME": "",
+    "DATAFORSEO_PASSWORD": ""
   },
   "worker_loaders": [
     {

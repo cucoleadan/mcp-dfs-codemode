@@ -135,7 +135,7 @@ export default {
     if (path === "/" || path === "/configure") {
       const kv = getKV(env);
       if (!kv) {
-        return new Response("KV namespace (CRED_CONFIG) not configured. Add a KV binding in Cloudflare Dashboard.", {
+        return new Response("KV namespace not configured. The CRED_CONFIG binding will be auto-provisioned on next deploy.", {
           status: 200,
           headers: { "Content-Type": "text/plain" },
         });
@@ -183,16 +183,16 @@ export default {
         }
         dfsUsername = env.DATAFORSEO_USERNAME;
         dfsPassword = env.DATAFORSEO_PASSWORD;
-      } else if (env.CRED_CONFIG) {
-        const stored = await env.CRED_CONFIG.get(token, "json") as Record<string, string> | null;
+      } else {
+        const kv = getKV(env);
+        if (!kv) return jsonError(-32001, "No credential source. Set DATAFORSEO_USERNAME/PASSWORD or configure CRED_CONFIG KV.", 500);
+        const stored = await kv.get(token, "json") as Record<string, string> | null;
         if (!stored) return jsonError(-32001, "Invalid access token", 401);
         dfsUsername = stored.username;
         dfsPassword = stored.password;
-      } else {
-        return jsonError(-32001, "No credential source. Set DATAFORSEO_USERNAME/PASSWORD or configure CRED_CONFIG KV.", 500);
       }
     } else if (isPlainMCP) {
-      if (env.MCP_ACCESS_TOKEN || env.CRED_CONFIG) {
+      if (env.MCP_ACCESS_TOKEN || getKV(env)) {
         return jsonError(-32001, "Access token required. Use /mcp/<your-token>", 401);
       }
       dfsUsername = env.DATAFORSEO_USERNAME;
