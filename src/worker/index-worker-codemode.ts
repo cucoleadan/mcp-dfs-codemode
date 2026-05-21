@@ -108,6 +108,10 @@ function renderConfigUI(error?: string, saved?: boolean): string {
 </html>`;
 }
 
+function getKV(env: Env): KVNamespace | undefined {
+  return (env as unknown as Record<string, unknown>).CRED_CONFIG as KVNamespace | undefined;
+}
+
 function jsonError(code: number, message: string, status: number): Response {
   return new Response(
     JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }),
@@ -129,7 +133,8 @@ export default {
 
     // Config UI — show form on GET, save credentials on POST
     if (path === "/" || path === "/configure") {
-      if (!env.CRED_CONFIG) {
+      const kv = getKV(env);
+      if (!kv) {
         return new Response("KV namespace (CRED_CONFIG) not configured. Add a KV binding in Cloudflare Dashboard.", {
           status: 200,
           headers: { "Content-Type": "text/plain" },
@@ -149,7 +154,7 @@ export default {
               headers: { "Content-Type": "text/html" },
             });
           }
-          await env.CRED_CONFIG.put(token, JSON.stringify({ username, password }));
+          await kv.put(token, JSON.stringify({ username, password }));
           return new Response(renderConfigUI(undefined, true), {
             headers: { "Content-Type": "text/html" },
           });

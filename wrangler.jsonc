@@ -8,19 +8,18 @@
   "secrets": {
     "required": ["DATAFORSEO_USERNAME", "DATAFORSEO_PASSWORD"]
   },
+  "kv_namespaces": [
+    {
+      "binding": "CRED_CONFIG",
+      "id": "YOUR_KV_NAMESPACE_ID"
+    }
+  ],
   "vars": {
     "ENABLED_MODULES": null,
     "DATAFORSEO_FULL_RESPONSE": "false",
     "DATAFORSEO_SIMPLE_FILTER": "true",
     "MCP_ACCESS_TOKEN": null
   },
-  "kv_namespaces": [
-    {
-      "binding": "CRED_CONFIG",
-      "id": "YOUR_KV_NAMESPACE_ID",
-      "preview_id": "YOUR_KV_NAMESPACE_ID"
-    }
-  ],
   "worker_loaders": [
     {
       "binding": "LOADER"
