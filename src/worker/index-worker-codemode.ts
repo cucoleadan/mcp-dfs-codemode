@@ -76,23 +76,41 @@ function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 }
 
-function adminUI(baseUrl: string, tokens: Array<{ token: string; entry: TokenEntry }>): string {
-  const rows = tokens.map(t => {
-    const e = t.entry.expires_at;
-    let expD = "Never";
-    if (e) expD = expired(t.entry) ? `<span class="bad">Expired ${new Date(e).toLocaleDateString()}</span>` : new Date(e).toLocaleDateString();
-    return `<tr>
-      <td><b>${h(t.entry.name)}</b><br><code>${h(t.token.slice(0, 18))}…</code></td>
-      <td>${h(t.entry.username)}</td><td>${expD}</td>
-      <td><span class="chip ${expired(t.entry) ? 'bad' : 'ok'}">${expired(t.entry) ? 'expired' : 'active'}</span></td>
-      <td>
-        <button class="b s" onclick="cp('${h(t.token)}')">Copy URL</button>
-        <button class="b s o" onclick="del('${h(t.token)}')">Delete</button>
-      </td></tr>`;
-  }).join("");
+function tokenRow(baseUrl: string, t: { token: string; entry: TokenEntry }): string {
+  const e = t.entry.expires_at;
+  const isExp = expired(t.entry);
+  let expD = "Never";
+  if (e) expD = isExp ? `<span class="bad">Expired ${new Date(e).toLocaleDateString()}</span>` : new Date(e).toLocaleDateString();
+  const chip = isExp ? '<span class="chip bad">expired</span>' : '<span class="chip ok">active</span>';
+  return `<tr>
+    <td><b>${h(t.entry.name)}</b><br><code>${h(t.token.slice(0, 18))}…</code></td>
+    <td>${h(t.entry.username)}</td><td>${expD}</td>
+    <td>${chip}</td>
+    <td>
+      <button class="b s" onclick="copyUrl('${h(t.token)}')">Copy URL</button>
+      <button class="b s o" hx-delete="/admin/tokens?key=${h(t.token)}" hx-target="#token-list" hx-swap="outerHTML" hx-confirm="Delete this token?">Delete</button>
+    </td></tr>`;
+}
 
+function tokenListSection(baseUrl: string, tokens: Array<{ token: string; entry: TokenEntry }>): string {
+  const count = tokens.length;
+  const body = count === 0
+    ? '<div class="empty">No tokens. Create one above.</div>'
+    : `<table><thead><tr><th>Name / Key</th><th>Email</th><th>Expires</th><th>Status</th><th style="width:160px"></th></tr></thead><tbody>${tokens.map(t => tokenRow(baseUrl, t)).join("")}</tbody></table>`;
+  return `<div class="c" id="token-list"><h2>Tokens (${count})</h2>${body}</div>`;
+}
+
+function tokenResultHtml(baseUrl: string, token: string): string {
+  return `<div id="token-result" class="res on">
+    <div class="res-t"><span id="res-url">${h(baseUrl)}/mcp/${h(token)}</span><button class="b s" onclick="copyText('${h(baseUrl)}/mcp/${h(token)}')">Copy</button><button class="b s d" onclick="this.closest('.res').classList.remove('on')" title="Dismiss">&times;</button></div>
+    <div class="res-note">Save this URL. It will only be shown once per creation.</div></div>`;
+}
+
+function adminUI(baseUrl: string, tokens: Array<{ token: string; entry: TokenEntry }>): string {
   return `<!DOCTYPE html><html class="dark"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MCP DFS Codemode</title><style>
+<title>MCP DFS Codemode</title>
+<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<style>
 :root{--bg:#09090b;--c1:#18181b;--b:#27272a;--m:#3f3f46;--f:#fafafa;--f2:#a1a1aa;--p:#3b82f6;--p2:#1d4ed8;--r:#ef4444;--g:#22c55e;--y:#f59e0b}
 *{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--f);margin:0;min-height:100vh}
 .n{background:var(--c1);border-bottom:1px solid var(--b);padding:0 20px;display:flex;align-items:center;height:52px;gap:12px}
@@ -101,12 +119,13 @@ function adminUI(baseUrl: string, tokens: Array<{ token: string; entry: TokenEnt
 .c{background:var(--c1);border:1px solid var(--b);border-radius:12px;padding:22px 24px;margin-bottom:22px}
 .c h2{font-size:1rem;margin:0 0 14px;font-weight:600}
 .g{display:grid;grid-template-columns:1fr 1fr;gap:14px}.g3{grid-template-columns:1fr 1fr 1fr}
-.f{margin-bottom:14px}.f label{display:block;font-size:.82rem;color:var(--f2);margin-bottom:5px;font-weight:500}
-.f input,.f select{width:100%;padding:9px 12px;border:1px solid var(--b);border-radius:8px;background:var(--bg);color:var(--f);font-size:.87rem;outline:none}
-.f input:focus,.f select:focus{border-color:var(--p)}
+.fi{margin-bottom:14px}.fi label{display:block;font-size:.82rem;color:var(--f2);margin-bottom:5px;font-weight:500}
+.fi input,.fi select{width:100%;padding:9px 12px;border:1px solid var(--b);border-radius:8px;background:var(--bg);color:var(--f);font-size:.87rem;outline:none}
+.fi input:focus,.fi select:focus{border-color:var(--p)}
 .b{display:inline-flex;align-items:center;justify-content:center;padding:9px 18px;border:none;border-radius:8px;font-size:.85rem;font-weight:500;cursor:pointer;color:#fff;background:var(--p);transition:.15s}
 .b:hover{background:var(--p2)}.b:active{transform:scale(.97)}
 .b.s{padding:5px 11px;font-size:.78rem;border-radius:6px}
+.b.d{background:transparent;border:1px solid var(--b);color:var(--f2);font-size:1.1rem;padding:4px 7px}.b.d:hover{background:var(--b);color:var(--f)}
 .b.o{background:transparent;border:1px solid var(--b);color:var(--r)}.b.o:hover{background:rgba(239,68,68,.1)}
 .b.fw{width:100%}
 table{width:100%;border-collapse:collapse}
@@ -116,40 +135,38 @@ td{padding:10px;border-bottom:1px solid var(--b);font-size:.83rem;vertical-align
 .chip.ok{background:rgba(34,197,94,.15);color:var(--g)}.chip.bad{background:rgba(239,68,68,.1);color:var(--r)}
 .bad{color:var(--r)}code{font-size:.78rem;color:var(--f2);word-break:break-all}
 .empty{text-align:center;padding:36px;color:var(--f2)}
-.toast{position:fixed;bottom:20px;right:20px;background:var(--c1);border:1px solid var(--b);border-radius:10px;padding:12px 18px;font-size:.85rem;box-shadow:0 8px 30px rgba(0,0,0,.5);z-index:99;display:none;animation:in .25s ease}
-.toast.on{display:block}.toast.g{color:var(--g)}.toast.r{color:var(--r)}
-@keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-.url{display:none;margin-top:14px;padding:12px 14px;background:var(--bg);border:1px solid var(--p);border-radius:8px;font-family:monospace;font-size:.82rem;word-break:break-all;align-items:center;gap:10px}
-.url.on{display:flex}.url span{flex:1}
+.res{display:none;background:var(--c1);border:1px solid var(--g);border-radius:12px;padding:16px 20px;margin-bottom:22px}
+.res.on{display:block}.res-t{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.res-t span{flex:1;font-family:monospace;font-size:.85rem;color:var(--f);word-break:break-all;min-width:200px}
+.res-note{font-size:.78rem;color:var(--f2);margin-top:8px}
+.htmx-indicator{opacity:0;transition:opacity .2s}.htmx-request .htmx-indicator,.htmx-request.htmx-indicator{opacity:1}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--b);border-top-color:var(--p);border-radius:50%;animation:sp .6s linear infinite;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
 </style></head><body>
-<div class="n"><h1>MCP DFS Codemode</h1><span>v${version}</span><span style="flex:1"></span><span>${h(baseUrl)}</span><button class="b s o" onclick="logout()" style="margin-left:8px">Logout</button></div>
-<div class="m">
+<div class="n"><h1>MCP DFS Codemode</h1><span>v${version}</span><span style="flex:1"></span><span>${h(baseUrl)}</span><button class="b s o" onclick="logout()">Logout</button></div>
+<div class="m" hx-headers='js:{Authorization:"Bearer "+((localStorage.getItem("dfs_admin_token")||""))}'>
+<div id="token-result"></div>
 <div class="c"><h2>Create Token</h2>
-<form id="f" onsubmit="cr(event)">
-  <div class="g"><div class="f"><label>Token Name</label><input name="name" placeholder="My Workstation" required></div>
-  <div class="f"><label>Expiration</label><select name="expires"><option value="">Never</option><option value="1w">1 Week</option><option value="1m">1 Month</option><option value="1y">1 Year</option></select></div></div>
-  <div class="g"><div class="f"><label>DataForSEO Email</label><input name="username" type="email" placeholder="you@example.com" required></div>
-  <div class="f"><label>DataForSEO Password</label><input name="password" type="password" required></div></div>
-  <div style="margin-top:8px"><button type="submit" class="b" style="width:100%;height:44px;font-size:.95rem">Generate Token</button></div>
+<form hx-post="/admin/tokens" hx-target="#token-result" hx-swap="innerHTML" hx-indicator="#spinner">
+  <div class="g"><div class="fi"><label>Token Name</label><input name="name" placeholder="My Workstation" required></div>
+  <div class="fi"><label>Expiration</label><select name="expires"><option value="">Never</option><option value="1w">1 Week</option><option value="1m">1 Month</option><option value="1y">1 Year</option></select></div></div>
+  <div class="g"><div class="fi"><label>DataForSEO Email</label><input name="username" type="email" placeholder="you@example.com" required></div>
+  <div class="fi"><label>DataForSEO Password</label><input name="password" type="password" required></div></div>
+  <div style="margin-top:8px"><button type="submit" class="b fw" style="height:44px;font-size:.95rem"><span id="spinner" class="spin htmx-indicator"></span>Generate Token</button></div>
 </form>
-<div id="url" class="url"><span id="ut"></span><button class="b s" onclick="cps()">Copy</button></div>
 </div>
-<div class="c"><h2>Tokens (${tokens.length})</h2>
-${tokens.length === 0 ? '<div class="empty">No tokens. Create one above.</div>' : `<table><thead><tr><th>Name / Key</th><th>Email</th><th>Expires</th><th>Status</th><th style="width:160px"></th></tr></thead><tbody>${rows}</tbody></table>`}
-</div></div><div id="toast" class="toast"></div>
+${tokenListSection(baseUrl, tokens)}
+</div>
 <script>
-const B="${h(baseUrl)}";
 let TOKEN=localStorage.getItem("dfs_admin_token")||"";
 if(!TOKEN){let m=document.cookie.match(/admin_token=([^;]+)/);if(m){TOKEN=decodeURIComponent(m[1]);localStorage.setItem("dfs_admin_token",TOKEN)}else{location.href="/admin/login";document.body.innerHTML="";throw new Error()}}
-function t(msg,k){let e=document.getElementById("toast");e.textContent=msg;e.className="toast on "+(k?"g":"r");setTimeout(()=>e.className="toast",2500)}
-async function cr(e){e.preventDefault();let d=new FormData(e.target),b=Object.fromEntries(d),r=await fetch("/admin/tokens",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+TOKEN},body:JSON.stringify(b)});
-if(r.ok){let j=await r.json();document.getElementById("ut").textContent=B+"/mcp/"+j.token;document.getElementById("url").classList.add("on");t("Created!",true);setTimeout(()=>location.reload(),1500)}
-else{if(r.status===401){localStorage.removeItem("dfs_admin_token");location.reload()}else{let j=await r.json();t(j.error||"Failed",false)}}}
-async function del(token){if(!confirm("Delete?"))return;let r=await fetch("/admin/tokens?token="+token,{method:"DELETE",headers:{"Authorization":"Bearer "+TOKEN}});
-if(r.ok){t("Deleted",true);location.reload()}else{if(r.status===401){localStorage.removeItem("dfs_admin_token");location.reload()}else t("Failed",false)}}
-function cp(token){navigator.clipboard.writeText(B+"/mcp/"+token).then(()=>t("Copied!",true))}
-function cps(){let e=document.getElementById("ut");navigator.clipboard.writeText(e.textContent).then(()=>t("Copied!",true))}
+document.addEventListener('DOMContentLoaded',function(){if(!document.getElementById("token-list")){location.href="/admin/login";document.body.innerHTML="";throw new Error()}});
+htmx.config.selfRequestsOnly=false;
+function copyUrl(token){navigator.clipboard.writeText("${h(baseUrl)}/mcp/"+token)}
+function copyText(text){navigator.clipboard.writeText(text)}
 function logout(){localStorage.removeItem("dfs_admin_token");document.cookie="admin_token=;Max-Age=0;Path=/admin";location.href="/admin/login"}
+document.body.addEventListener('htmx:configRequest',function(e){var t=localStorage.getItem("dfs_admin_token");if(t)e.detail.headers.Authorization='Bearer '+t});
+document.body.addEventListener('htmx:responseError',function(e){if(e.detail.xhr.status===401){localStorage.removeItem("dfs_admin_token");location.href="/admin/login"}});
 </script></body></html>`;
 }
 
@@ -343,19 +360,21 @@ export default {
       }
 
       if (path === "/admin/tokens" && request.method === "GET") {
-        const list = await kv.list({ prefix: "sk-" });
-        const tokens = [];
-        for (const k of list.keys) {
-          const v = await kv.get(k.name, "json") as TokenEntry | null;
-          if (v) tokens.push({ token: k.name, ...v });
-        }
-        return json(tokens);
+        return json({ error: "Not found" }, 404);
       }
 
       if (path === "/admin/tokens" && request.method === "POST") {
         try {
-          const body = await request.json() as { name?: string; username?: string; password?: string; expires?: string };
-          if (!body.username || !body.password) return json({ error: "Missing credentials" }, 400);
+          const ct = request.headers.get("Content-Type") || "";
+          let body: Record<string, string> = {};
+          if (ct.includes("application/x-www-form-urlencoded")) {
+            body = Object.fromEntries(new URLSearchParams(await request.text()));
+          } else {
+            body = await request.json() as Record<string, string>;
+          }
+          if (!body.username || !body.password) {
+            return new Response(`<div id="token-result" class="res on" style="border-color:var(--r)"><div class="res-note" style="color:var(--r)">Missing credentials</div></div>`, { headers: { "Content-Type": "text/html" } });
+          }
           const token = genToken();
           const expMap: Record<string, number> = { "1w": 7, "1m": 30, "1y": 365 };
           let expires_at: string | null = null;
@@ -364,15 +383,45 @@ export default {
           }
           const entry: TokenEntry = { username: body.username, password: body.password, name: body.name || "Unnamed", created_at: new Date().toISOString(), expires_at };
           await kv.put(token, JSON.stringify(entry));
-          return json({ token, ...entry });
-        } catch { return json({ error: "Invalid request" }, 400); }
+          const list = await kv.list({ prefix: "sk-" });
+          const tokens: Array<{ token: string; entry: TokenEntry }> = [];
+          for (const k of list.keys) {
+            const v = await kv.get(k.name, "json") as TokenEntry | null;
+            if (v) tokens.push({ token: k.name, entry: v });
+          }
+          tokens.sort((a, b) => new Date(b.entry.created_at).getTime() - new Date(a.entry.created_at).getTime());
+          return new Response(
+            tokenResultHtml(baseUrl, token) + "\n" + tokenListSection(baseUrl, tokens),
+            { headers: { "Content-Type": "text/html" } }
+          );
+        } catch {
+          return new Response(`<div id="token-result" class="res on" style="border-color:var(--r)"><div class="res-note" style="color:var(--r)">Invalid request</div></div>`, { headers: { "Content-Type": "text/html" } });
+        }
       }
 
       if (path === "/admin/tokens" && request.method === "DELETE") {
-        const token = url.searchParams.get("token");
-        if (!token) return json({ error: "Missing token" }, 400);
-        await kv.delete(token);
-        return json({ ok: true });
+        const key = url.searchParams.get("key");
+        if (!key) return json({ error: "Missing key" }, 400);
+        await kv.delete(key);
+        const list = await kv.list({ prefix: "sk-" });
+        const tokens: Array<{ token: string; entry: TokenEntry }> = [];
+        for (const k of list.keys) {
+          const v = await kv.get(k.name, "json") as TokenEntry | null;
+          if (v) tokens.push({ token: k.name, entry: v });
+        }
+        tokens.sort((a, b) => new Date(b.entry.created_at).getTime() - new Date(a.entry.created_at).getTime());
+        return new Response(tokenListSection(baseUrl, tokens), { headers: { "Content-Type": "text/html" } });
+      }
+
+      if (path === "/admin/token-list" && request.method === "GET") {
+        const list = await kv.list({ prefix: "sk-" });
+        const tokens: Array<{ token: string; entry: TokenEntry }> = [];
+        for (const k of list.keys) {
+          const v = await kv.get(k.name, "json") as TokenEntry | null;
+          if (v) tokens.push({ token: k.name, entry: v });
+        }
+        tokens.sort((a, b) => new Date(b.entry.created_at).getTime() - new Date(a.entry.created_at).getTime());
+        return new Response(tokenListSection(baseUrl, tokens), { headers: { "Content-Type": "text/html" } });
       }
     }
 
