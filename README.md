@@ -6,15 +6,62 @@ DataForSEO MCP server wrapped with **Cloudflare Codemode** — LLMs compose mult
 
 Built on top of [dataforseo/mcp-server-typescript](https://github.com/dataforseo/mcp-server-typescript) with automatic upstream sync.
 
-## How it works
+## Quick start (6 steps)
 
-Instead of exposing 83 individual MCP tools, Codemode exposes a single `code` tool. The LLM writes JavaScript that chains any number of DataForSEO API calls:
+### Step 1 — Deploy
+
+Click **Deploy to Cloudflare** above. Everything is auto-provisioned:
+- Worker deploys to your Cloudflare account
+- KV namespace is created automatically (Cloudflare's automatic provisioning)
+- No manual setup needed
+
+### Step 2 — Visit your admin panel
+
+Open your worker URL in a browser (e.g. `https://mcp-dfs-codemode.your-subdomain.workers.dev`).
+
+You'll see the **first-time setup page** — no admin token is configured yet.
+
+### Step 3 — Generate and save your admin token
+
+1. Click **Generate** — a random token like `sk-admin-abc123...` appears
+2. Click **Copy** to save it somewhere safe
+3. Click **Save & Activate** — the token is stored in KV and you're redirected to the login page
+
+### Step 4 — Log in
+
+1. The login page shows a password field with your token pre-filled (from localStorage)
+2. Check **Remember this device** (recommended) to stay logged in for 1 year
+3. Click **Unlock**
+
+> Your browser will offer to save the password — accept it so you never lose your admin token.
+
+### Step 5 — Create API tokens
+
+On the admin dashboard, create tokens for your MCP clients:
+
+| Field | Value |
+|-------|-------|
+| Token Name | A label (e.g. "Claude Desktop") |
+| Expiration | Never / 1 Week / 1 Month / 1 Year |
+| Email | Your DataForSEO account email |
+| Password | Your DataForSEO account password |
+
+### Step 6 — Connect your MCP client
+
+Use the generated token in your MCP client URL:
+
+```
+https://mcp-dfs-codemode.your-subdomain.workers.dev/mcp/sk-your-token
+```
+
+## How Codemode works
+
+Instead of 83 individual MCP tools, Codemode exposes a single `code` tool. The LLM writes JavaScript that chains any number of DataForSEO API calls:
 
 ```js
 async () => {
   const serp = await codemode.serp_organic_live_advanced({
-    keyword: "running shoes",
-    location_name: "United States"
+    keyword: "running shoes", location_name: "United States"
   });
   const url = serp?.items?.[0]?.url;
   if (url) {
@@ -25,72 +72,74 @@ async () => {
 }
 ```
 
-One LLM step → any number of API calls with conditionals, loops, and data transformations.
-
 | Version | tokens/list tokens |
 |---------|-------------------|
 | Official MCP (83 tools) | ~6,200 |
 | Codemode (trimmed) | **~745** |
 
-## Deployment
+## Admin panel
 
-### One-click deploy
+### Auth flow
 
-Click the button above. Everything is auto-provisioned:
-
-- Worker deploys to your Cloudflare account
-- KV namespace is **auto-created** during deploy (Cloudflare's automatic provisioning)
-- No manual Cloudflare setup needed
-
-After deploy, choose your auth mode.
-
-### Manual CLI deploy
-
-```bash
-npm install --legacy-peer-deps
-npm run worker:deploy
 ```
+First visit → Setup page (generate + save token to KV)
+                         ↓
+Login page (password form, autocomplete="current-password")
+   ↓
+Cookie set → Admin dashboard unlocked
+```
+
+**Auth is checked via 3 sources (checked in order):**
+1. `?token=` URL query parameter (backward compatible)
+2. `admin_token` cookie (set by login form)
+3. `Authorization: Bearer <token>` HTTP header (used by the admin panel JS)
+
+**Browser persistence:**
+- Token is stored in `localStorage` — survives page reloads and browser restarts
+- If you checked "Remember this device", the server sets a 1-year cookie
+- On return visits, the admin panel reads localStorage first, falls back to the cookie
+- Chrome/Edge will offer to save the token as a password
+
+**Forgot your admin token?**
+- Check your browser's saved passwords (Settings → Passwords)
+- Check your browser's localStorage (DevTools → Application → Local Storage → `dfs_admin_token`)
+- As a last resort, delete the `_admin:auth` key from your KV namespace and revisit the setup page
+
+### Logging out
+
+Click **Logout** in the admin navbar. This clears both the cookie and localStorage. You'll be redirected to the login page.
+
+### Token management
+
+- **Create tokens**: Fill the form at the top of the admin panel. Expiration is optional.
+- **List tokens**: All active tokens shown in the table below the form.
+- **Copy MCP URL**: Click **Copy URL** on any token row to get the full MCP endpoint.
+- **Delete tokens**: Click **Delete** to revoke a token.
 
 ## Auth modes
 
-Choose one of two modes after deployment.
+### Mode A: Single-tenant (your DFS account via secrets)
 
-### Mode A: Single-tenant (env vars — your DFS account)
-
-Set these as **secrets** in Cloudflare Dashboard → Workers → mcp-dfs-codemode → Settings → Variables:
+Set these as **secrets** in Cloudflare Dashboard → Workers → mcp-dfs-codemode → Settings:
 
 | Secret | Description |
 |--------|-------------|
 | `DATAFORSEO_USERNAME` | Your DataForSEO email |
 | `DATAFORSEO_PASSWORD` | Your DataForSEO password |
-| `MCP_ACCESS_TOKEN` | A secret token (e.g. `sk-my-token`) |
+| `MCP_ACCESS_TOKEN` | A secret token users must include in the URL path |
 
-Then share: `https://mcp-dfs-codemode.your-subdomain.workers.dev/mcp/sk-my-token`
+Users access via: `https://<worker>/mcp/<your-mcp-access-token>`
 
-### Mode B: Multi-tenant (KV — each user brings their own DFS creds)
+### Mode B: Multi-tenant (each user brings their own DFS creds — default)
 
-No secrets needed. The KV namespace is auto-provisioned. Visit your worker URL in a browser:
-
-```
-https://mcp-dfs-codemode.your-subdomain.workers.dev/
-```
-
-Enter your DataForSEO email, password, and a personal access token. Saved to KV immediately. Use:
-
-```
-https://mcp-dfs-codemode.your-subdomain.workers.dev/mcp/your-token
-```
-
-Multiple users can configure their own credentials independently.
-
-### Auth logic
+No secrets needed. Use the admin panel to create tokens. Each token maps to its own DataForSEO credentials.
 
 ```
 /mcp/<token> → check MCP_ACCESS_TOKEN env var → check KV → return DFS creds or 401
-/mcp         → works only if no MCP_ACCESS_TOKEN and no KV configured (backward compat)
+/mcp         → backward compat (only works without token auth configured)
 ```
 
-## Usage with clients
+## Client setup
 
 ### Claude Desktop
 
@@ -99,7 +148,7 @@ Multiple users can configure their own credentials independently.
   "mcpServers": {
     "dfs": {
       "command": "npx",
-      "args": ["mcp-remote", "https://mcp-dfs-codemode.your-subdomain.workers.dev/mcp/sk-my-token"]
+      "args": ["mcp-remote", "https://<worker>/mcp/sk-your-token"]
     }
   }
 }
@@ -110,16 +159,14 @@ Multiple users can configure their own credentials independently.
 | Field | Value |
 |-------|-------|
 | Name | DataForSEO |
-| URL | `https://mcp-dfs-codemode.your-subdomain.workers.dev/mcp/sk-my-token` |
+| URL | `https://<worker>/mcp/sk-your-token` |
 | OAuth | Leave empty (token is in URL) |
 
 ### Cursor / any MCP client
 
-Same as above — point to your worker URL with the token in the path.
+Point your client to `https://<worker>/mcp/sk-your-token`. The token in the URL path authenticates the request.
 
-## Available tool categories
-
-All tools accessed as `codemode.<toolName>({...})`:
+## Available tools
 
 | Module | Example tools |
 |--------|--------------|
@@ -134,16 +181,28 @@ All tools accessed as `codemode.<toolName>({...})`:
 | Content Analysis | search, summary, phrase_trends |
 | Merchant | amazon_asin, amazon_sellers, amazon_products |
 
-## Available endpoints
+## Endpoints
 
-| Path | Description |
-|------|-------------|
-| `GET /health` | Health check |
-| `GET /` | Config UI (multi-tenant) |
-| `GET /configure` | Config UI form |
-| `POST /configure` | Save DFS creds + token to KV |
-| `POST /mcp` | MCP Streamable HTTP (requires token) |
-| `POST /mcp/<token>` | MCP Streamable HTTP with token auth |
+| Path | Method | Description | Auth |
+|------|--------|-------------|------|
+| `GET /` | GET | Home — redirects to admin if configured, else setup | None |
+| `GET /health` | GET | Health check | None |
+| `GET /admin` | GET | Admin panel (tokens CRUD) | Cookie / token |
+| `GET /admin/login` | GET | Login form | None |
+| `POST /admin/login` | POST | Validate token, set cookie | None |
+| `POST /admin/setup` | POST | First-time admin token save | KV only if empty |
+| `POST /admin/tokens` | POST | Create a new API token | Cookie / token |
+| `GET /admin/tokens` | GET | List all API tokens | Cookie / token |
+| `DELETE /admin/tokens?token=X` | DELETE | Delete an API token | Cookie / token |
+| `POST /mcp/<token>` | POST | MCP Streamable HTTP | Token in path |
+| `POST /mcp` | POST | MCP (backward compat) | Env var |
+
+## CLI deploy
+
+```bash
+npm install --legacy-peer-deps
+npm run worker:deploy
+```
 
 ## Testing
 
@@ -153,7 +212,7 @@ npm test
 
 ## Upstream sync
 
-This repo automatically syncs from `dataforseo/mcp-server-typescript` every Monday at 06:00 UTC via `.github/workflows/sync-upstream.yml`. A PR is opened with upstream changes for review.
+Auto-syncs from `dataforseo/mcp-server-typescript` every Monday at 06:00 UTC via `.github/workflows/sync-upstream.yml`. A PR is opened with upstream changes for review.
 
 ## License
 
