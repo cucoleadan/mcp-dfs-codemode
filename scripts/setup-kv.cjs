@@ -4,71 +4,45 @@ const fs = require("fs");
 const path = require("path");
 
 const WRANGLER_CONFIG = path.join(__dirname, "..", "wrangler.jsonc");
-const KV_BINDING_NAME = "CRED_CONFIG";
-const KV_NAMESPACE_TITLE = "mcp-dfs-codemode-creds";
+const KV_NAME = "mcp-dfs-codemode-creds";
 
 function run(cmd) {
-  try {
-    return execSync(cmd, { encoding: "utf-8", stdio: "pipe" }).trim();
-  } catch {
-    return "";
-  }
+  try { return execSync(cmd, { encoding: "utf-8", timeout: 15000 }).trim(); }
+  catch { return ""; }
 }
 
 function main() {
-  let raw = fs.readFileSync(WRANGLER_CONFIG, "utf-8");
+  const raw = fs.readFileSync(WRANGLER_CONFIG, "utf-8");
 
-  // Check if a valid KV ID already exists (not the placeholder)
-  const currentId = raw.match(/"id":\s*"([^"]+)"/);
-  if (currentId && currentId[1] !== "YOUR_KV_NAMESPACE_ID" && currentId[1].length > 5) {
-    return; // already configured
-  }
+  // Check if a valid ID already exists
+  const match = raw.match(/"CRED_CONFIG"[^}]*"id":\s*"([^"]+)"/);
+  if (match && match[1].length > 5) return; // already set
 
   console.log("🔧 Setting up CRED_CONFIG KV namespace...");
 
-  // Look for existing namespace by title
+  // Try to find existing namespace
   let nsId = null;
-  const listJson = run("npx wrangler kv namespace list");
-  if (listJson) {
-    try {
-      const list = JSON.parse(listJson);
-      const found = list.find((n) => n.title === KV_NAMESPACE_TITLE);
-      if (found) nsId = found.id;
-    } catch {}
+  const listOut = run("npx wrangler kv namespace list");
+  const listMatch = listOut.match(new RegExp(`"${KV_NAME}"[^}]*"id":\\s*"([^"]+)"`));
+  if (listMatch) nsId = listMatch[1];
+
+  if (!nsId) {
+    const createOut = run(`npx wrangler kv namespace create "${KV_NAME}"`);
+    const createMatch = createOut.match(/"id":\s*"([a-f0-9]+)"/i);
+    if (createMatch) nsId = createMatch[1];
   }
 
   if (!nsId) {
-    const output = run(`npx wrangler kv namespace create "${KV_NAMESPACE_TITLE}" 2>&1`);
-    const match = output.match(/id\s*[:=]?\s*"?([a-f0-9]+)"?/i);
-    if (match) nsId = match[1];
-  }
-
-  if (!nsId) {
-    console.warn("⚠️  Could not create KV namespace. Multi-tenant mode will not be available.");
+    console.warn("⚠️  Could not create KV namespace. Multi-tenant mode unavailable.");
     return;
   }
 
-  // Inject the real ID into wrangler.jsonc
-  const kvBlock = [
-    `  "kv_namespaces": [`,
-    `    {`,
-    `      "binding": "${KV_BINDING_NAME}",`,
-    `      "id": "${nsId}"`,
-    `    }`,
-    `  ],`,
-  ].join("\n");
-
-  // Remove old kv_namespaces block if present
-  raw = raw.replace(/^\s*"kv_namespaces":\s*\[[^\]]*\]\s*,?\s*/m, "");
-
-  // Insert before worker_loaders
-  raw = raw.replace(
-    /(\s*)"worker_loaders":/,
-    `$1${kvBlock}\n$1"worker_loaders":`,
-  );
-
-  fs.writeFileSync(WRANGLER_CONFIG, raw, "utf-8");
-  console.log(`✅ CRED_CONFIG KV namespace ready (id: ${nsId})`);
+  // Inject into wrangler.jsonc
+  const block = `"kv_namespaces": [\n    { "binding": "CRED_CONFIG", "id": "${nsId}" }\n  ],`;
+  let updated = raw.replace(/^\s*"kv_namespaces":\s*\[[^\]]*\]\s*,?\s*/m, "");
+  updated = updated.replace(/(\s*)"worker_loaders":/, `  $1${block}\n$1"worker_loaders":`);
+  fs.writeFileSync(WRANGLER_CONFIG, updated, "utf-8");
+  console.log(`✅ CRED_CONFIG KV ready (id: ${nsId})`);
 }
 
 main();
