@@ -5,6 +5,11 @@
   "compatibility_date": "2025-07-05",
   "compatibility_flags": ["nodejs_compat"],
   "minify": true,
+  "kv_namespaces": [
+    {
+      "binding": "CRED_CONFIG"
+    }
+  ],
   "vars": {
     "ENABLED_MODULES": null,
     "DATAFORSEO_FULL_RESPONSE": "false",
