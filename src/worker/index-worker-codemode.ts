@@ -128,10 +128,10 @@ td{padding:10px;border-bottom:1px solid var(--b);font-size:.83rem;vertical-align
 <div class="c"><h2>Create Token</h2>
 <form id="f" onsubmit="cr(event)">
   <div class="g"><div class="f"><label>Token Name</label><input name="name" placeholder="My Workstation" required></div>
-  <div class="f"><label>DataForSEO Email</label><input name="username" type="email" placeholder="you@example.com" required></div>
+  <div class="f"><label>Expiration</label><select name="expires"><option value="">Never</option><option value="1w">1 Week</option><option value="1m">1 Month</option><option value="1y">1 Year</option></select></div></div>
+  <div class="g"><div class="f"><label>DataForSEO Email</label><input name="username" type="email" placeholder="you@example.com" required></div>
   <div class="f"><label>DataForSEO Password</label><input name="password" type="password" required></div></div>
-  <div class="g g3"><div class="f"><label>Expiration</label><select name="expires"><option value="">Never</option><option value="1w">1 Week</option><option value="1m">1 Month</option><option value="1y">1 Year</option></select></div>
-  <div class="f" style="display:flex;align-items:flex-end"><button type="submit" class="b fw" style="height:40px">Generate Token</button></div></div>
+  <div style="margin-top:8px"><button type="submit" class="b" style="width:100%;height:44px;font-size:.95rem">Generate Token</button></div>
 </form>
 <div id="url" class="url"><span id="ut"></span><button class="b s" onclick="cps()">Copy</button></div>
 </div>
@@ -150,10 +150,11 @@ function cps(){let e=document.getElementById("ut");navigator.clipboard.writeText
 </script></body></html>`;
 }
 
-function checkAdmin(env: Env, url: URL): boolean {
+function checkAdmin(env: Env, url: URL): { ok: boolean; reason?: string } {
   const token = env.ADMIN_TOKEN;
-  if (!token) return true; // No admin token configured = open
-  return url.searchParams.get("token") === token;
+  if (!token) return { ok: false, reason: "ADMIN_TOKEN not configured. Set it as an environment variable in the Cloudflare Dashboard (Workers → mcp-dfs-codemode → Settings → Variables → add ADMIN_TOKEN)." };
+  if (url.searchParams.get("token") !== token) return { ok: false, reason: "Invalid or missing admin token. Access /admin?token=YOUR_ADMIN_TOKEN." };
+  return { ok: true };
 }
 
 export default {
@@ -170,8 +171,18 @@ export default {
     // Admin panel + API — optionally protected by ADMIN_TOKEN
     const isAdminRoute = path === "/admin" || path.startsWith("/admin/tokens");
     if (isAdminRoute) {
-      if (!checkAdmin(env, url)) {
-        return new Response("Forbidden", { status: 403 });
+      const adminCheck = checkAdmin(env, url);
+      if (!adminCheck.ok) {
+        return new Response(`<!DOCTYPE html><html class="dark"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP DFS Codemode — Setup Required</title>
+<style>:root{--bg:#09090b;--c1:#18181b;--b:#27272a;--f:#fafafa;--f2:#a1a1aa;--p:#3b82f6}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--f);display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.c{background:var(--c1);border:1px solid var(--b);border-radius:12px;padding:32px;max-width:500px;text-align:center}
+.c h1{font-size:1.1rem;margin:0 0 12px}
+.c p{color:var(--f2);font-size:.9rem;line-height:1.5;margin:0}
+.c code{background:var(--bg);padding:3px 7px;border-radius:5px;font-size:.85rem;color:var(--p)}</style></head>
+<body><div class="c"><h1>Admin Panel Locked</h1><p>${h(adminCheck.reason || "Access denied")}</p></div></body></html>`,
+          { status: 403, headers: { "Content-Type": "text/html" } });
       }
       if (!kv) return new Response("KV namespace not configured. Add CRED_CONFIG binding.", { status: 200, headers: { "Content-Type": "text/plain" } });
 
@@ -220,10 +231,22 @@ export default {
       }
     }
 
-    // Home page — redirect to admin
+    // Home page — redirect to admin if configured, else show setup message
     if (path === "/" && request.method === "GET") {
-      const q = env.ADMIN_TOKEN ? `?token=${env.ADMIN_TOKEN}` : "";
-      return Response.redirect(`${baseUrl}/admin${q}`, 302);
+      const adminCheck = checkAdmin(env, url);
+      if (!adminCheck.ok) {
+        return new Response(`<!DOCTYPE html><html class="dark"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP DFS Codemode — Setup</title>
+<style>:root{--bg:#09090b;--c1:#18181b;--b:#27272a;--f:#fafafa;--f2:#a1a1aa;--p:#3b82f6}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--f);display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.c{background:var(--c1);border:1px solid var(--b);border-radius:12px;padding:32px;max-width:500px;text-align:center}
+.c h1{font-size:1.1rem;margin:0 0 12px}.c p{color:var(--f2);font-size:.9rem;line-height:1.5;margin:0}
+.c code{background:var(--bg);padding:3px 7px;border-radius:5px;font-size:.85rem;color:var(--p)}</style></head>
+<body><div class="c"><h1>MCP DFS Codemode</h1><p>${h(adminCheck.reason || "Setup required")}</p></div></body></html>`,
+          { headers: { "Content-Type": "text/html" } });
+      }
+      const adminToken = env.ADMIN_TOKEN || "";
+      return Response.redirect(`${baseUrl}/admin${adminToken ? '?token=' + adminToken : ""}`, 302);
     }
 
     // Resolve credentials for MCP
