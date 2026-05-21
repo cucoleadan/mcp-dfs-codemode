@@ -10,8 +10,7 @@
   },
   "kv_namespaces": [
     {
-      "binding": "CRED_CONFIG",
-      "id": "YOUR_KV_NAMESPACE_ID"
+      "binding": "CRED_CONFIG"
     }
   ],
   "vars": {
