@@ -1,8 +1,10 @@
 # mcp-dfs-codemode
 
+> **Requires a paid Cloudflare Workers plan.** This project uses [Cloudflare Codemode / Dynamic Workers](https://developers.cloudflare.com/dynamic-workers/examples/codemode/), which is not available on the free Cloudflare Workers plan.
+
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cucoleadan/mcp-dfs-codemode)
 
-DataForSEO MCP server wrapped with **Cloudflare Codemode** — LLMs compose multi-step SEO API calls as JavaScript code in a secure sandbox, at ~745 tokens for tool discovery.
+DataForSEO MCP server wrapped with **Cloudflare Codemode** — LLMs compose multi-step SEO API calls as JavaScript code in a secure sandbox, at ~822 tokens for tool discovery.
 
 Built on top of [dataforseo/mcp-server-typescript](https://github.com/dataforseo/mcp-server-typescript) with automatic upstream sync.
 
