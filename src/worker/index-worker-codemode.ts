@@ -151,7 +151,7 @@ function cps(){let e=document.getElementById("ut");navigator.clipboard.writeText
 }
 
 function checkAdmin(env: Env, url: URL): { ok: boolean; reason?: string } {
-  const token = (env as unknown as Record<string, string | undefined>).ADMIN_TOKEN;
+  const token = env.ADMIN_TOKEN;
   if (!token) return { ok: false, reason: "ADMIN_TOKEN not configured. Set it as a secret in Cloudflare Dashboard (Workers → mcp-dfs-codemode → Settings → Secrets)." };
   if (url.searchParams.get("token") !== token) return { ok: false, reason: "Invalid or missing admin token. Access /admin?token=YOUR_ADMIN_TOKEN." };
   return { ok: true };
@@ -211,7 +211,7 @@ function cp(){let e=document.getElementById("tval");if(!e.value)return;navigator
           if (v) tokens.push({ token: k.name, entry: v });
         }
         tokens.sort((a, b) => new Date(b.entry.created_at).getTime() - new Date(a.entry.created_at).getTime());
-        return new Response(adminUI(baseUrl, tokens, (env as unknown as Record<string, string>).ADMIN_TOKEN || ""), { headers: { "Content-Type": "text/html" } });
+        return new Response(adminUI(baseUrl, tokens, env.ADMIN_TOKEN), { headers: { "Content-Type": "text/html" } });
       }
 
       if (path === "/admin/tokens" && request.method === "GET") {
@@ -287,7 +287,7 @@ function cp(){let e=document.getElementById("tval");if(!e.value)return;navigator
 </script></body></html>`,
           { headers: { "Content-Type": "text/html" } });
       }
-      const adminToken = (env as unknown as Record<string, string>).ADMIN_TOKEN || "";
+      const adminToken = env.ADMIN_TOKEN;
       return Response.redirect(`${baseUrl}/admin${adminToken ? '?token=' + adminToken : ""}`, 302);
     }
 
