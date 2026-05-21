@@ -151,8 +151,8 @@ function cps(){let e=document.getElementById("ut");navigator.clipboard.writeText
 }
 
 function checkAdmin(env: Env, url: URL): { ok: boolean; reason?: string } {
-  const token = env.ADMIN_TOKEN;
-  if (!token) return { ok: false, reason: "ADMIN_TOKEN not configured. Set it as an environment variable in the Cloudflare Dashboard (Workers → mcp-dfs-codemode → Settings → Variables → add ADMIN_TOKEN)." };
+  const token = (env as unknown as Record<string, string | undefined>).ADMIN_TOKEN;
+  if (!token) return { ok: false, reason: "ADMIN_TOKEN not configured. Set it as a secret in Cloudflare Dashboard (Workers → mcp-dfs-codemode → Settings → Secrets)." };
   if (url.searchParams.get("token") !== token) return { ok: false, reason: "Invalid or missing admin token. Access /admin?token=YOUR_ADMIN_TOKEN." };
   return { ok: true };
 }
@@ -193,7 +193,7 @@ body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--f);displa
 </style></head><body><div class="c"><h1>MCP DFS Codemode</h1><p>${h(adminCheck.reason || "Access denied")}</p>
 <div class="step">1. Generate an admin token:</div>
 <div class="tbox"><input id="tval" readonly value="" placeholder="Click generate..."><button class="b" onclick="gen()">Generate Token</button><button class="b d" onclick="cp()">Copy</button></div>
-<div class="step">2. Add to Cloudflare Dashboard:</div><p>Workers &amp; Pages → mcp-dfs-codemode → Settings → Variables → <code>ADMIN_TOKEN</code></p>
+<div class="step">2. Add to Cloudflare Dashboard:</div><p>Workers &amp; Pages → mcp-dfs-codemode → Settings → Secrets → <code>ADMIN_TOKEN</code></p>
 <div class="step">3. Redeploy and access:</div><p><code>/admin?token=YOUR_TOKEN</code></p></div>
 <div id="toast" class="toast"></div><script>
 function gen(){let a=new Uint8Array(16);crypto.getRandomValues(a);let t="sk-admin-"+btoa(String.fromCharCode(...a)).replace(/[+/=]/g,"").slice(0,20);document.getElementById("tval").value=t}
@@ -211,7 +211,7 @@ function cp(){let e=document.getElementById("tval");if(!e.value)return;navigator
           if (v) tokens.push({ token: k.name, entry: v });
         }
         tokens.sort((a, b) => new Date(b.entry.created_at).getTime() - new Date(a.entry.created_at).getTime());
-        return new Response(adminUI(baseUrl, tokens, env.ADMIN_TOKEN || ""), { headers: { "Content-Type": "text/html" } });
+        return new Response(adminUI(baseUrl, tokens, (env as unknown as Record<string, string>).ADMIN_TOKEN || ""), { headers: { "Content-Type": "text/html" } });
       }
 
       if (path === "/admin/tokens" && request.method === "GET") {
@@ -277,7 +277,7 @@ body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--f);displa
   <div class="step">1. Generate an admin token:</div>
   <div class="tbox"><input id="tval" readonly value="" placeholder="Click generate..."><button class="b" onclick="gen()">Generate Token</button><button class="b d" onclick="cp()">Copy</button></div>
   <div class="step">2. Add it to Cloudflare Dashboard:</div>
-  <p>Workers &amp; Pages → mcp-dfs-codemode → Settings → Variables → <code>ADMIN_TOKEN</code></p>
+  <p>Workers &amp; Pages → mcp-dfs-codemode → Settings → Secrets → <code>ADMIN_TOKEN</code></p>
   <div class="step">3. Redeploy and access:</div>
   <p><code>/admin?token=YOUR_TOKEN</code></p>
 </div>
@@ -287,7 +287,7 @@ function cp(){let e=document.getElementById("tval");if(!e.value)return;navigator
 </script></body></html>`,
           { headers: { "Content-Type": "text/html" } });
       }
-      const adminToken = env.ADMIN_TOKEN || "";
+      const adminToken = (env as unknown as Record<string, string>).ADMIN_TOKEN || "";
       return Response.redirect(`${baseUrl}/admin${adminToken ? '?token=' + adminToken : ""}`, 302);
     }
 
