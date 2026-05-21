@@ -76,8 +76,7 @@ function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 }
 
-function adminUI(baseUrl: string, tokens: Array<{ token: string; entry: TokenEntry }>, adminToken: string): string {
-  const q = adminToken ? `?token=${adminToken}` : "";
+function adminUI(baseUrl: string, tokens: Array<{ token: string; entry: TokenEntry }>): string {
   const rows = tokens.map(t => {
     const e = t.entry.expires_at;
     let expD = "Never";
@@ -123,7 +122,7 @@ td{padding:10px;border-bottom:1px solid var(--b);font-size:.83rem;vertical-align
 .url{display:none;margin-top:14px;padding:12px 14px;background:var(--bg);border:1px solid var(--p);border-radius:8px;font-family:monospace;font-size:.82rem;word-break:break-all;align-items:center;gap:10px}
 .url.on{display:flex}.url span{flex:1}
 </style></head><body>
-<div class="n"><h1>MCP DFS Codemode</h1><span>v${version}</span><span style="flex:1"></span><span>${h(baseUrl)}</span></div>
+<div class="n"><h1>MCP DFS Codemode</h1><span>v${version}</span><span style="flex:1"></span><span>${h(baseUrl)}</span><button class="b s o" onclick="logout()" style="margin-left:8px">Logout</button></div>
 <div class="m">
 <div class="c"><h2>Create Token</h2>
 <form id="f" onsubmit="cr(event)">
@@ -139,29 +138,53 @@ td{padding:10px;border-bottom:1px solid var(--b);font-size:.83rem;vertical-align
 ${tokens.length === 0 ? '<div class="empty">No tokens. Create one above.</div>' : `<table><thead><tr><th>Name / Key</th><th>Email</th><th>Expires</th><th>Status</th><th style="width:160px"></th></tr></thead><tbody>${rows}</tbody></table>`}
 </div></div><div id="toast" class="toast"></div>
 <script>
-const B="${h(baseUrl)}",A="${h(adminToken)}",Q=A?"?token="+A:"";
+const B="${h(baseUrl)}";
+let TOKEN=localStorage.getItem("dfs_admin_token")||"";
+if(!TOKEN){let m=document.cookie.match(/admin_token=([^;]+)/);if(m){TOKEN=decodeURIComponent(m[1]);localStorage.setItem("dfs_admin_token",TOKEN)}else{location.href="/admin/login";document.body.innerHTML="";throw new Error()}}
 function t(msg,k){let e=document.getElementById("toast");e.textContent=msg;e.className="toast on "+(k?"g":"r");setTimeout(()=>e.className="toast",2500)}
-async function cr(e){e.preventDefault();let d=new FormData(e.target),b=Object.fromEntries(d),r=await fetch("/admin/tokens"+Q,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
-if(r.ok){let j=await r.json();document.getElementById("ut").textContent=B+"/mcp/"+j.token;document.getElementById("url").classList.add("on");t("Created!",true);setTimeout(()=>location.reload(),1500)}else{let j=await r.json();t(j.error||"Failed",false)}}
-async function del(token){if(!confirm("Delete?"))return;let r=await fetch("/admin/tokens?token="+token+Q.replace("?","&"),{method:"DELETE"});
-if(r.ok){t("Deleted",true);location.reload()}else t("Failed",false)}
+async function cr(e){e.preventDefault();let d=new FormData(e.target),b=Object.fromEntries(d),r=await fetch("/admin/tokens",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+TOKEN},body:JSON.stringify(b)});
+if(r.ok){let j=await r.json();document.getElementById("ut").textContent=B+"/mcp/"+j.token;document.getElementById("url").classList.add("on");t("Created!",true);setTimeout(()=>location.reload(),1500)}
+else{if(r.status===401){localStorage.removeItem("dfs_admin_token");location.reload()}else{let j=await r.json();t(j.error||"Failed",false)}}}
+async function del(token){if(!confirm("Delete?"))return;let r=await fetch("/admin/tokens?token="+token,{method:"DELETE",headers:{"Authorization":"Bearer "+TOKEN}});
+if(r.ok){t("Deleted",true);location.reload()}else{if(r.status===401){localStorage.removeItem("dfs_admin_token");location.reload()}else t("Failed",false)}}
 function cp(token){navigator.clipboard.writeText(B+"/mcp/"+token).then(()=>t("Copied!",true))}
 function cps(){let e=document.getElementById("ut");navigator.clipboard.writeText(e.textContent).then(()=>t("Copied!",true))}
+function logout(){localStorage.removeItem("dfs_admin_token");document.cookie="admin_token=;Max-Age=0;Path=/admin";location.href="/admin/login"}
 </script></body></html>`;
 }
 
 const ADMIN_KV_KEY = "_admin:auth";
-const LOCKED_HTML = `<!DOCTYPE html><html class="dark"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MCP DFS Codemode</title>
-<style>:root{--bg:#09090b;--c1:#18181b;--b:#27272a;--f:#fafafa;--f2:#a1a1aa;--p:#3b82f6}
-body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--f);display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-.c{background:var(--c1);border:1px solid var(--b);border-radius:12px;padding:32px;max-width:500px;text-align:center}
-.c h1{font-size:1.1rem;margin:0 0 12px}.c p{color:var(--f2);font-size:.9rem;line-height:1.5;margin:0}
-.c code{background:var(--bg);padding:2px 6px;border-radius:5px;font-size:.83rem;color:var(--p)}
-.c a{color:var(--p)}</style></head>
-<body><div class="c"><h1>Admin Locked</h1><p>Access /admin?token=YOUR_TOKEN</p></div></body></html>`;
 
-interface AdminResult { ok: boolean; token?: string; needsSetup?: boolean; locked?: boolean; }
+function LOGIN_PAGE_HTML(baseUrl: string, error?: string): string {
+  const err = error ? `<div class="e">${h(error)}</div>` : "";
+  return `<!DOCTYPE html><html class="dark"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP DFS Codemode — Login</title>
+<style>:root{--bg:#09090b;--c1:#18181b;--b:#27272a;--f:#fafafa;--f2:#a1a1aa;--p:#3b82f6;--p2:#1d4ed8;--r:#ef4444;--g:#22c55e}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--f);display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.c{background:var(--c1);border:1px solid var(--b);border-radius:12px;padding:32px;max-width:380px;width:100%}
+.c h1{font-size:1.15rem;margin:0 0 4px}.c p{color:var(--f2);font-size:.87rem;margin:0 0 24px}
+.c label{display:block;font-size:.82rem;color:var(--f2);margin-bottom:6px;font-weight:500}
+.c input{width:100%;padding:10px 12px;border:1px solid var(--b);border-radius:8px;background:var(--bg);color:var(--f);font-size:.9rem;outline:none;margin-bottom:16px}
+.c input:focus{border-color:var(--p)}
+.c button{width:100%;padding:10px;border:none;border-radius:8px;font-size:.9rem;font-weight:500;cursor:pointer;color:#fff;background:var(--p);transition:.15s}
+.c button:hover{background:var(--p2)}
+.e{background:rgba(239,68,68,.1);border:1px solid var(--r);color:var(--r);border-radius:8px;padding:10px 14px;font-size:.83rem;margin-bottom:16px}
+.r{display:flex;align-items:center;gap:8px;margin-bottom:14px}.r input[type=checkbox]{width:auto;margin:0}.r label{font-size:.82rem;color:var(--f2);margin:0}
+</style></head><body><div class="c">
+<h1>MCP DFS Codemode</h1><p>Enter your admin token to continue.</p>
+${err}
+<form method="POST" action="/admin/login">
+  <label for="t">Admin Token</label>
+  <input id="t" name="token" type="password" autocomplete="current-password" placeholder="sk-admin-…" required autofocus>
+  <div class="r"><input type="checkbox" id="rm" name="remember" checked><label for="rm">Remember this device</label></div>
+  <button type="submit">Unlock</button>
+</form>
+</div>
+<script>if(localStorage.getItem("dfs_admin_token")){let e=document.getElementById("t");e.value=localStorage.getItem("dfs_admin_token");e.type="password"}</script>
+</body></html>`;
+}
+
+interface AdminResult { ok: boolean; token?: string; needsSetup?: boolean; }
 
 function SETUP_PAGE_HTML(baseUrl: string): string {
   return `<!DOCTYPE html><html class="dark"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -197,18 +220,33 @@ function c(){let e=document.getElementById("tv");if(!e.value)return;navigator.cl
 function t(msg,ok){let e=document.getElementById("toast");e.textContent=msg;e.className="toast on "+(ok?"g":"r");setTimeout(()=>e.className="toast",2500)}
 async function s(){let v=document.getElementById("tv").value;if(!v)return t("Generate a token first",false);
 let r=await fetch("/admin/setup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:v})});
-if(r.ok){t("Saved! Redirecting…",true);setTimeout(()=>location.href="/admin?token="+encodeURIComponent(v),800)}
+if(r.ok){let j=await r.json();localStorage.setItem("dfs_admin_token",j.token);t("Saved! Redirecting…",true);setTimeout(()=>location.href="/admin",800)}
 else{let j=await r.json().catch(()=>({}));t(j.error||"Failed to save",false)}}
 </script></body></html>`;
 }
 
-async function checkAdmin(kv: KVNamespace | undefined, url: URL): Promise<AdminResult> {
-  if (!kv) return { ok: false, locked: true };
+function getToken(request: Request, url: URL, kv: KVNamespace | undefined): string | null {
+  if (!kv) return null;
+  // 1. URL param
+  const q = url.searchParams.get("token");
+  if (q) return q;
+  // 2. Cookie
+  const cookie = request.headers.get("Cookie") || "";
+  const c = cookie.split(";").map(c => c.trim()).find(c => c.startsWith("admin_token="));
+  if (c) return decodeURIComponent(c.split("=", 2)[1]);
+  // 3. Authorization header
+  const auth = request.headers.get("Authorization") || "";
+  if (auth.startsWith("Bearer ")) return auth.slice(7);
+  return null;
+}
+
+async function checkAdmin(request: Request, url: URL, kv: KVNamespace | undefined): Promise<AdminResult> {
+  if (!kv) return { ok: false, needsSetup: false };
   const stored = await kv.get(ADMIN_KV_KEY);
   if (!stored) return { ok: false, needsSetup: true };
-  const param = url.searchParams.get("token");
-  if (param === stored) return { ok: true, token: stored };
-  return { ok: false, locked: true };
+  const provided = getToken(request, url, kv);
+  if (provided === stored) return { ok: true, token: stored };
+  return { ok: false, needsSetup: false };
 }
 
 export default {
@@ -225,7 +263,7 @@ export default {
     // Admin panel + API — auth via KV-stored token
     const isAdminRoute = path === "/admin" || path.startsWith("/admin/");
     if (isAdminRoute) {
-      const adminCheck = await checkAdmin(kv, url);
+      const adminCheck = await checkAdmin(request, url, kv);
 
       // Setup — no admin token stored yet, show setup page
       if (adminCheck.needsSetup && path === "/admin") {
@@ -244,10 +282,49 @@ export default {
         } catch { return json({ error: "Invalid request" }, 400); }
       }
 
-      // Not authorized — show locked page
+      // GET /admin/login — show login page
+      if (path === "/admin/login" && request.method === "GET") {
+        const err = url.searchParams.get("error");
+        return new Response(LOGIN_PAGE_HTML(baseUrl, err || undefined), { headers: { "Content-Type": "text/html" } });
+      }
+
+      // POST /admin/login — validate token and set cookie
+      if (path === "/admin/login" && request.method === "POST" && kv) {
+        const contentType = request.headers.get("Content-Type") || "";
+        let token: string | null = null;
+        let remember = false;
+        if (contentType.includes("application/x-www-form-urlencoded")) {
+          const body = await request.text();
+          const params = new URLSearchParams(body);
+          token = params.get("token");
+          remember = params.has("remember");
+        } else {
+          try {
+            const body = await request.json() as { token?: string; remember?: boolean };
+            token = body.token || null;
+            remember = !!body.remember;
+          } catch { /* fall through */ }
+        }
+        if (!token) return new Response(null, { status: 302, headers: { Location: "/admin/login?error=" + encodeURIComponent("Missing token") } });
+        const stored = await kv.get(ADMIN_KV_KEY);
+        if (!stored || token !== stored) return new Response(null, { status: 302, headers: { Location: "/admin/login?error=" + encodeURIComponent("Invalid token") } });
+        const maxAge = remember ? ";Max-Age=31536000" : "";
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: "/admin",
+            "Set-Cookie": `admin_token=${encodeURIComponent(token)};Path=/admin;SameSite=Strict${maxAge};Secure`
+          }
+        });
+      }
+
+      // Not authorized — show login page for human routes, deny API routes
       if (!adminCheck.ok) {
         if (adminCheck.needsSetup) return new Response("Not found", { status: 404 });
-        return new Response(LOCKED_HTML, { status: 403, headers: { "Content-Type": "text/html" } });
+        if (path === "/admin" || path === "/admin/login") {
+          return new Response(LOGIN_PAGE_HTML(baseUrl, path === "/admin" ? "Access denied. Please log in." : undefined), { headers: { "Content-Type": "text/html" } });
+        }
+        return json({ error: "Unauthorized" }, 401);
       }
 
       if (!kv) return new Response("KV namespace not configured. Add CRED_CONFIG binding.", { status: 200, headers: { "Content-Type": "text/plain" } });
@@ -262,7 +339,7 @@ export default {
           if (v) tokens.push({ token: k.name, entry: v });
         }
         tokens.sort((a, b) => new Date(b.entry.created_at).getTime() - new Date(a.entry.created_at).getTime());
-        return new Response(adminUI(baseUrl, tokens, adminToken), { headers: { "Content-Type": "text/html" } });
+        return new Response(adminUI(baseUrl, tokens), { headers: { "Content-Type": "text/html" } });
       }
 
       if (path === "/admin/tokens" && request.method === "GET") {
@@ -304,7 +381,7 @@ export default {
       if (!kv) return new Response(`<html><body style="font-family:system-ui;padding:40px;text-align:center"><h2>MCP DFS Codemode</h2><p>KV not configured. Add CRED_CONFIG binding.</p></body></html>`, { headers: { "Content-Type": "text/html" } });
       const stored = await kv.get(ADMIN_KV_KEY);
       if (!stored) return new Response(SETUP_PAGE_HTML(baseUrl), { headers: { "Content-Type": "text/html" } });
-      return Response.redirect(`/admin?token=${encodeURIComponent(stored)}`, 302);
+      return Response.redirect("/admin", 302);
     }
 
     // Resolve credentials for MCP
