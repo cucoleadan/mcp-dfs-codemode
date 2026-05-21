@@ -150,11 +150,65 @@ function cps(){let e=document.getElementById("ut");navigator.clipboard.writeText
 </script></body></html>`;
 }
 
-function checkAdmin(env: Env, url: URL): { ok: boolean; reason?: string } {
-  const token = env.ADMIN_TOKEN;
-  if (!token) return { ok: false, reason: "ADMIN_TOKEN not configured. Set it as a secret in Cloudflare Dashboard (Workers → mcp-dfs-codemode → Settings → Secrets)." };
-  if (url.searchParams.get("token") !== token) return { ok: false, reason: "Invalid or missing admin token. Access /admin?token=YOUR_ADMIN_TOKEN." };
-  return { ok: true };
+const ADMIN_KV_KEY = "_admin:auth";
+const LOCKED_HTML = `<!DOCTYPE html><html class="dark"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP DFS Codemode</title>
+<style>:root{--bg:#09090b;--c1:#18181b;--b:#27272a;--f:#fafafa;--f2:#a1a1aa;--p:#3b82f6}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--f);display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.c{background:var(--c1);border:1px solid var(--b);border-radius:12px;padding:32px;max-width:500px;text-align:center}
+.c h1{font-size:1.1rem;margin:0 0 12px}.c p{color:var(--f2);font-size:.9rem;line-height:1.5;margin:0}
+.c code{background:var(--bg);padding:2px 6px;border-radius:5px;font-size:.83rem;color:var(--p)}
+.c a{color:var(--p)}</style></head>
+<body><div class="c"><h1>Admin Locked</h1><p>Access /admin?token=YOUR_TOKEN</p></div></body></html>`;
+
+interface AdminResult { ok: boolean; token?: string; needsSetup?: boolean; locked?: boolean; }
+
+function SETUP_PAGE_HTML(baseUrl: string): string {
+  return `<!DOCTYPE html><html class="dark"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP DFS Codemode — Setup</title>
+<style>:root{--bg:#09090b;--c1:#18181b;--b:#27272a;--f:#fafafa;--f2:#a1a1aa;--p:#3b82f6;--p2:#1d4ed8;--g:#22c55e;--r:#ef4444}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--f);display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.c{background:var(--c1);border:1px solid var(--b);border-radius:12px;padding:32px;max-width:460px}
+.c h1{font-size:1.15rem;margin:0 0 4px}.c h2{font-size:.95rem;color:var(--f2);font-weight:400;margin:0 0 20px}
+.c .step{font-size:.85rem;color:var(--f2);margin:16px 0 4px;font-weight:500}
+.c code{background:var(--bg);padding:2px 6px;border-radius:5px;font-size:.83rem;color:var(--p)}
+.tbox{display:flex;align-items:center;gap:10px;margin:8px 0 14px}
+.tbox input{flex:1;padding:9px 12px;border:1px solid var(--b);border-radius:8px;background:var(--bg);color:var(--f);font-size:.85rem;font-family:monospace;outline:none}
+.tbox input:focus{border-color:var(--p)}
+.b{display:inline-flex;align-items:center;justify-content:center;padding:9px 18px;border:none;border-radius:8px;font-size:.85rem;font-weight:500;cursor:pointer;color:#fff;background:var(--p);transition:.15s;white-space:nowrap}
+.b:hover{background:var(--p2)}.b:active{transform:scale(.97)}
+.b.d{background:transparent;border:1px solid var(--b);color:var(--f)}.b.d:hover{background:var(--b)}
+.b.g{background:var(--g);width:100%;padding:12px;font-size:.93rem}.b.g:hover{background:#16a34a}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--c1);border:1px solid var(--b);border-radius:10px;padding:12px 18px;font-size:.85rem;box-shadow:0 8px 30px rgba(0,0,0,.5);z-index:99;display:none;animation:in .25s ease}
+.toast.on{display:block;color:var(--p)}.toast.r{color:var(--r)}.toast.g{color:var(--g)}
+@keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.ed{display:none;margin-top:16px;padding:12px;background:var(--bg);border:1px solid var(--p);border-radius:8px;font-family:monospace;font-size:.82rem;word-break:break-all}.ed.on{display:block}
+</style></head><body><div class="c">
+<h1>MCP DFS Codemode</h1><h2>First-time admin setup</h2>
+<div class="step">1. Generate your admin token:</div>
+<div class="tbox"><input id="tv" readonly placeholder="Click generate…"><button class="b" onclick="g()">Generate</button><button class="b d" onclick="c()">Copy</button></div>
+<div class="step">2. Save it:</div>
+<button class="b g" onclick="s()">Save &amp; Activate</button>
+<div id="ed" class="ed"><code id="ut"></code></div>
+</div>
+<div id="toast" class="toast"></div><script>
+function g(){let a=new Uint8Array(16);crypto.getRandomValues(a);let t="sk-admin-"+btoa(String.fromCharCode(...a)).replace(/[+/=]/g,"").slice(0,20);document.getElementById("tv").value=t}
+function c(){let e=document.getElementById("tv");if(!e.value)return;navigator.clipboard.writeText(e.value).then(()=>t("Copied",true))}
+function t(msg,ok){let e=document.getElementById("toast");e.textContent=msg;e.className="toast on "+(ok?"g":"r");setTimeout(()=>e.className="toast",2500)}
+async function s(){let v=document.getElementById("tv").value;if(!v)return t("Generate a token first",false);
+let r=await fetch("/admin/setup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:v})});
+if(r.ok){t("Saved! Redirecting…",true);setTimeout(()=>location.href="/admin?token="+encodeURIComponent(v),800)}
+else{let j=await r.json().catch(()=>({}));t(j.error||"Failed to save",false)}}
+</script></body></html>`;
+}
+
+async function checkAdmin(kv: KVNamespace | undefined, url: URL): Promise<AdminResult> {
+  if (!kv) return { ok: false, locked: true };
+  const stored = await kv.get(ADMIN_KV_KEY);
+  if (!stored) return { ok: false, needsSetup: true };
+  const param = url.searchParams.get("token");
+  if (param === stored) return { ok: true, token: stored };
+  return { ok: false, locked: true };
 }
 
 export default {
@@ -168,40 +222,37 @@ export default {
       return json({ status: "healthy", server: SERVER_NAME, version, codemode: true });
     }
 
-    // Admin panel + API — optionally protected by ADMIN_TOKEN
-    const isAdminRoute = path === "/admin" || path.startsWith("/admin/tokens");
+    // Admin panel + API — auth via KV-stored token
+    const isAdminRoute = path === "/admin" || path.startsWith("/admin/");
     if (isAdminRoute) {
-      const adminCheck = checkAdmin(env, url);
-      if (!adminCheck.ok) {
-        return new Response(`<!DOCTYPE html><html class="dark"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MCP DFS Codemode — Setup</title>
-<style>:root{--bg:#09090b;--c1:#18181b;--b:#27272a;--f:#fafafa;--f2:#a1a1aa;--p:#3b82f6;--p2:#1d4ed8}
-body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--f);display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-.c{background:var(--c1);border:1px solid var(--b);border-radius:12px;padding:32px;max-width:500px}
-.c h1{font-size:1.1rem;margin:0 0 12px}.c p{color:var(--f2);font-size:.9rem;line-height:1.5;margin:0}
-.c .step{font-size:.85rem;color:var(--f2);margin:16px 0 4px;font-weight:500}
-.c code{background:var(--bg);padding:2px 6px;border-radius:5px;font-size:.83rem;color:var(--p)}
-.tbox{display:flex;align-items:center;gap:10px;margin:8px 0}
-.tbox input{flex:1;padding:9px 12px;border:1px solid var(--b);border-radius:8px;background:var(--bg);color:var(--f);font-size:.85rem;font-family:monospace;outline:none}
-.tbox input:focus{border-color:var(--p)}
-.b{display:inline-flex;align-items:center;justify-content:center;padding:9px 18px;border:none;border-radius:8px;font-size:.85rem;font-weight:500;cursor:pointer;color:#fff;background:var(--p);transition:.15s;white-space:nowrap}
-.b:hover{background:var(--p2)}.b:active{transform:scale(.97)}
-.b.d{background:transparent;border:1px solid var(--b);color:var(--f)}.b.d:hover{background:var(--b)}
-.toast{position:fixed;bottom:20px;right:20px;background:var(--c1);border:1px solid var(--b);border-radius:10px;padding:12px 18px;font-size:.85rem;box-shadow:0 8px 30px rgba(0,0,0,.5);z-index:99;display:none;animation:in .25s ease}
-.toast.on{display:block;color:var(--p)}
-@keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-</style></head><body><div class="c"><h1>MCP DFS Codemode</h1><p>${h(adminCheck.reason || "Access denied")}</p>
-<div class="step">1. Generate an admin token:</div>
-<div class="tbox"><input id="tval" readonly value="" placeholder="Click generate..."><button class="b" onclick="gen()">Generate Token</button><button class="b d" onclick="cp()">Copy</button></div>
-<div class="step">2. Add to Cloudflare Dashboard:</div><p>Workers &amp; Pages → mcp-dfs-codemode → Settings → Secrets → <code>ADMIN_TOKEN</code></p>
-<div class="step">3. Redeploy and access:</div><p><code>/admin?token=YOUR_TOKEN</code></p></div>
-<div id="toast" class="toast"></div><script>
-function gen(){let a=new Uint8Array(16);crypto.getRandomValues(a);let t="sk-admin-"+btoa(String.fromCharCode(...a)).replace(/[+/=]/g,"").slice(0,20);document.getElementById("tval").value=t}
-function cp(){let e=document.getElementById("tval");if(!e.value)return;navigator.clipboard.writeText(e.value).then(()=>{let t=document.getElementById("toast");t.textContent="Copied!";t.className="toast on";setTimeout(()=>t.className="toast",2e3)})}
-</script></body></html>`,
-          { status: 403, headers: { "Content-Type": "text/html" } });
+      const adminCheck = await checkAdmin(kv, url);
+
+      // Setup — no admin token stored yet, show setup page
+      if (adminCheck.needsSetup && path === "/admin") {
+        return new Response(SETUP_PAGE_HTML(baseUrl), { headers: { "Content-Type": "text/html" } });
       }
+
+      // POST /admin/setup — store the first admin token (only works if none exists)
+      if (adminCheck.needsSetup && path === "/admin/setup" && request.method === "POST" && kv) {
+        try {
+          const body = await request.json() as { token?: string };
+          if (!body.token) return json({ error: "Missing token" }, 400);
+          const existing = await kv.get(ADMIN_KV_KEY);
+          if (existing) return json({ error: "Admin already configured" }, 409);
+          await kv.put(ADMIN_KV_KEY, body.token);
+          return json({ ok: true, token: body.token });
+        } catch { return json({ error: "Invalid request" }, 400); }
+      }
+
+      // Not authorized — show locked page
+      if (!adminCheck.ok) {
+        if (adminCheck.needsSetup) return new Response("Not found", { status: 404 });
+        return new Response(LOCKED_HTML, { status: 403, headers: { "Content-Type": "text/html" } });
+      }
+
       if (!kv) return new Response("KV namespace not configured. Add CRED_CONFIG binding.", { status: 200, headers: { "Content-Type": "text/plain" } });
+
+      const adminToken = adminCheck.token!;
 
       if (path === "/admin") {
         const list = await kv.list({ prefix: "sk-" });
@@ -211,7 +262,7 @@ function cp(){let e=document.getElementById("tval");if(!e.value)return;navigator
           if (v) tokens.push({ token: k.name, entry: v });
         }
         tokens.sort((a, b) => new Date(b.entry.created_at).getTime() - new Date(a.entry.created_at).getTime());
-        return new Response(adminUI(baseUrl, tokens, env.ADMIN_TOKEN), { headers: { "Content-Type": "text/html" } });
+        return new Response(adminUI(baseUrl, tokens, adminToken), { headers: { "Content-Type": "text/html" } });
       }
 
       if (path === "/admin/tokens" && request.method === "GET") {
@@ -248,47 +299,12 @@ function cp(){let e=document.getElementById("tval");if(!e.value)return;navigator
       }
     }
 
-    // Home page — redirect to admin if configured, else show setup message
+    // Home page
     if (path === "/" && request.method === "GET") {
-      const adminCheck = checkAdmin(env, url);
-      if (!adminCheck.ok) {
-        return new Response(`<!DOCTYPE html><html class="dark"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MCP DFS Codemode — Setup</title>
-<style>:root{--bg:#09090b;--c1:#18181b;--b:#27272a;--f:#fafafa;--f2:#a1a1aa;--p:#3b82f6;--p2:#1d4ed8}
-body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--f);display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-.c{background:var(--c1);border:1px solid var(--b);border-radius:12px;padding:32px;max-width:500px}
-.c h1{font-size:1.1rem;margin:0 0 12px}
-.c p{color:var(--f2);font-size:.9rem;line-height:1.5;margin:0}
-.c .step{font-size:.85rem;color:var(--f2);margin:16px 0 4px;font-weight:500}
-.c code{background:var(--bg);padding:2px 6px;border-radius:5px;font-size:.83rem;color:var(--p)}
-.tbox{display:flex;align-items:center;gap:10px;margin:8px 0}
-.tbox input{flex:1;padding:9px 12px;border:1px solid var(--b);border-radius:8px;background:var(--bg);color:var(--f);font-size:.85rem;font-family:monospace;outline:none}
-.tbox input:focus{border-color:var(--p)}
-.b{display:inline-flex;align-items:center;justify-content:center;padding:9px 18px;border:none;border-radius:8px;font-size:.85rem;font-weight:500;cursor:pointer;color:#fff;background:var(--p);transition:.15s;white-space:nowrap}
-.b:hover{background:var(--p2)}.b:active{transform:scale(.97)}
-.b.d{background:transparent;border:1px solid var(--b);color:var(--f)}.b.d:hover{background:var(--b)}
-.toast{position:fixed;bottom:20px;right:20px;background:var(--c1);border:1px solid var(--b);border-radius:10px;padding:12px 18px;font-size:.85rem;box-shadow:0 8px 30px rgba(0,0,0,.5);z-index:99;display:none;animation:in .25s ease}
-.toast.on{display:block;color:var(--p)}
-@keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-</style></head><body>
-<div class="c">
-  <h1>MCP DFS Codemode</h1>
-  <p>${h(adminCheck.reason || "Setup required")}</p>
-  <div class="step">1. Generate an admin token:</div>
-  <div class="tbox"><input id="tval" readonly value="" placeholder="Click generate..."><button class="b" onclick="gen()">Generate Token</button><button class="b d" onclick="cp()">Copy</button></div>
-  <div class="step">2. Add it to Cloudflare Dashboard:</div>
-  <p>Workers &amp; Pages → mcp-dfs-codemode → Settings → Secrets → <code>ADMIN_TOKEN</code></p>
-  <div class="step">3. Redeploy and access:</div>
-  <p><code>/admin?token=YOUR_TOKEN</code></p>
-</div>
-<div id="toast" class="toast"></div><script>
-function gen(){let a=new Uint8Array(16);crypto.getRandomValues(a);let t="sk-admin-"+btoa(String.fromCharCode(...a)).replace(/[+/=]/g,"").slice(0,20);document.getElementById("tval").value=t}
-function cp(){let e=document.getElementById("tval");if(!e.value)return;navigator.clipboard.writeText(e.value).then(()=>{let t=document.getElementById("toast");t.textContent="Copied!";t.className="toast on";setTimeout(()=>t.className="toast",2e3)})}
-</script></body></html>`,
-          { headers: { "Content-Type": "text/html" } });
-      }
-      const adminToken = env.ADMIN_TOKEN;
-      return Response.redirect(`${baseUrl}/admin${adminToken ? '?token=' + adminToken : ""}`, 302);
+      if (!kv) return new Response(`<html><body style="font-family:system-ui;padding:40px;text-align:center"><h2>MCP DFS Codemode</h2><p>KV not configured. Add CRED_CONFIG binding.</p></body></html>`, { headers: { "Content-Type": "text/html" } });
+      const stored = await kv.get(ADMIN_KV_KEY);
+      if (!stored) return new Response(SETUP_PAGE_HTML(baseUrl), { headers: { "Content-Type": "text/html" } });
+      return Response.redirect(`/admin?token=${encodeURIComponent(stored)}`, 302);
     }
 
     // Resolve credentials for MCP
