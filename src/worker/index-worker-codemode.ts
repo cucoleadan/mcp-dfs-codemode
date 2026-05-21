@@ -71,9 +71,29 @@ function genToken(): string {
   return "sk-" + btoa(String.fromCharCode(...buf)).replace(/[+/=]/g, "").slice(0, 40);
 }
 function expired(e: TokenEntry): boolean { return !!e.expires_at && new Date(e.expires_at).getTime() < Date.now(); }
-function h(s: string): string { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+function h(s: unknown): string { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+}
+
+function isTokenEntry(v: unknown): v is TokenEntry {
+  const r = v as Partial<TokenEntry> | null;
+  return !!r && typeof r === "object" && typeof r.username === "string" && typeof r.password === "string" && typeof r.name === "string";
+}
+
+async function loadTokens(kv: KVNamespace): Promise<Array<{ token: string; entry: TokenEntry }>> {
+  const list = await kv.list({ prefix: "sk-" });
+  const tokens: Array<{ token: string; entry: TokenEntry }> = [];
+  for (const k of list.keys) {
+    try {
+      const v = await kv.get(k.name, "json");
+      if (isTokenEntry(v)) tokens.push({ token: k.name, entry: v });
+    } catch (err) {
+      console.warn(`Skipping invalid token entry ${k.name}`, err);
+    }
+  }
+  tokens.sort((a, b) => new Date(b.entry.created_at).getTime() - new Date(a.entry.created_at).getTime());
+  return tokens;
 }
 
 function tokenRow(baseUrl: string, t: { token: string; entry: TokenEntry }): string {
@@ -92,12 +112,12 @@ function tokenRow(baseUrl: string, t: { token: string; entry: TokenEntry }): str
     </td></tr>`;
 }
 
-function tokenListSection(baseUrl: string, tokens: Array<{ token: string; entry: TokenEntry }>): string {
+function tokenListSection(baseUrl: string, tokens: Array<{ token: string; entry: TokenEntry }>, oob = false): string {
   const count = tokens.length;
   const body = count === 0
     ? '<div class="empty">No tokens. Create one above.</div>'
     : `<table><thead><tr><th>Name / Key</th><th>Email</th><th>Expires</th><th>Status</th><th style="width:160px"></th></tr></thead><tbody>${tokens.map(t => tokenRow(baseUrl, t)).join("")}</tbody></table>`;
-  return `<div class="c" id="token-list"><h2>Tokens (${count})</h2>${body}</div>`;
+  return `<div class="c" id="token-list"${oob ? ' hx-swap-oob="true"' : ""}><h2>Tokens (${count})</h2>${body}</div>`;
 }
 
 function tokenResultHtml(baseUrl: string, token: string): string {
@@ -144,7 +164,7 @@ td{padding:10px;border-bottom:1px solid var(--b);font-size:.83rem;vertical-align
 @keyframes sp{to{transform:rotate(360deg)}}
 </style></head><body>
 <div class="n"><h1>MCP DFS Codemode</h1><span>v${version}</span><span style="flex:1"></span><span>${h(baseUrl)}</span><button class="b s o" onclick="logout()">Logout</button></div>
-<div class="m" hx-headers='js:{Authorization:"Bearer "+((localStorage.getItem("dfs_admin_token")||""))}'>
+<div class="m">
 <div id="token-result"></div>
 <div class="c"><h2>Create Token</h2>
 <form hx-post="/admin/tokens" hx-target="#token-result" hx-swap="innerHTML" hx-indicator="#spinner">
@@ -346,16 +366,8 @@ export default {
 
       if (!kv) return new Response("KV namespace not configured. Add CRED_CONFIG binding.", { status: 200, headers: { "Content-Type": "text/plain" } });
 
-      const adminToken = adminCheck.token!;
-
       if (path === "/admin") {
-        const list = await kv.list({ prefix: "sk-" });
-        const tokens: Array<{ token: string; entry: TokenEntry }> = [];
-        for (const k of list.keys) {
-          const v = await kv.get(k.name, "json") as TokenEntry | null;
-          if (v) tokens.push({ token: k.name, entry: v });
-        }
-        tokens.sort((a, b) => new Date(b.entry.created_at).getTime() - new Date(a.entry.created_at).getTime());
+        const tokens = await loadTokens(kv);
         return new Response(adminUI(baseUrl, tokens), { headers: { "Content-Type": "text/html" } });
       }
 
@@ -383,15 +395,9 @@ export default {
           }
           const entry: TokenEntry = { username: body.username, password: body.password, name: body.name || "Unnamed", created_at: new Date().toISOString(), expires_at };
           await kv.put(token, JSON.stringify(entry));
-          const list = await kv.list({ prefix: "sk-" });
-          const tokens: Array<{ token: string; entry: TokenEntry }> = [];
-          for (const k of list.keys) {
-            const v = await kv.get(k.name, "json") as TokenEntry | null;
-            if (v) tokens.push({ token: k.name, entry: v });
-          }
-          tokens.sort((a, b) => new Date(b.entry.created_at).getTime() - new Date(a.entry.created_at).getTime());
+          const tokens = await loadTokens(kv);
           return new Response(
-            tokenResultHtml(baseUrl, token) + "\n" + tokenListSection(baseUrl, tokens),
+            tokenResultHtml(baseUrl, token) + "\n" + tokenListSection(baseUrl, tokens, true),
             { headers: { "Content-Type": "text/html" } }
           );
         } catch {
@@ -403,24 +409,12 @@ export default {
         const key = url.searchParams.get("key");
         if (!key) return json({ error: "Missing key" }, 400);
         await kv.delete(key);
-        const list = await kv.list({ prefix: "sk-" });
-        const tokens: Array<{ token: string; entry: TokenEntry }> = [];
-        for (const k of list.keys) {
-          const v = await kv.get(k.name, "json") as TokenEntry | null;
-          if (v) tokens.push({ token: k.name, entry: v });
-        }
-        tokens.sort((a, b) => new Date(b.entry.created_at).getTime() - new Date(a.entry.created_at).getTime());
+        const tokens = await loadTokens(kv);
         return new Response(tokenListSection(baseUrl, tokens), { headers: { "Content-Type": "text/html" } });
       }
 
       if (path === "/admin/token-list" && request.method === "GET") {
-        const list = await kv.list({ prefix: "sk-" });
-        const tokens: Array<{ token: string; entry: TokenEntry }> = [];
-        for (const k of list.keys) {
-          const v = await kv.get(k.name, "json") as TokenEntry | null;
-          if (v) tokens.push({ token: k.name, entry: v });
-        }
-        tokens.sort((a, b) => new Date(b.entry.created_at).getTime() - new Date(a.entry.created_at).getTime());
+        const tokens = await loadTokens(kv);
         return new Response(tokenListSection(baseUrl, tokens), { headers: { "Content-Type": "text/html" } });
       }
     }
