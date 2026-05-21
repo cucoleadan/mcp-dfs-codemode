@@ -1,6 +1,6 @@
 {
   "name": "mcp-dfs-codemode",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "build/main/main/index.js",
   "type": "module",
   "bin": {

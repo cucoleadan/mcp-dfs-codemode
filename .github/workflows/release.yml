@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "VERSION"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@v6
+        with: { node-version: "22" }
+
+      - run: npm ci --legacy-peer-deps && npm test && npm run worker:build
+
+      - name: Get version
+        run: |
+          VER=$(cat VERSION)
+          echo "version=v${VER}" >> $GITHUB_OUTPUT
+          echo "version_name=${VER}" >> $GITHUB_OUTPUT
+        id: version
+
+      - name: Create tag
+        run: |
+          git tag "v${{ steps.version.outputs.version_name }}"
+          git push origin "v${{ steps.version.outputs.version_name }}"
+
+      - name: Generate changelog
+        run: |
+          LAST_TAG=$(git tag --sort=-version:refname | head -2 | tail -1)
+          echo "## v${{ steps.version.outputs.version_name }}" > /tmp/changelog.md
+          echo "" >> /tmp/changelog.md
+          git log ${LAST_TAG}..HEAD --oneline --no-merges | while read line; do
+            echo "- $line" >> /tmp/changelog.md
+          done
+          echo "" >> /tmp/changelog.md
+          echo "**Full diff:** [${LAST_TAG}...v${{ steps.version.outputs.version_name }}](https://github.com/${GITHUB_REPOSITORY}/compare/${LAST_TAG}...v${{ steps.version.outputs.version_name }})" >> /tmp/changelog.md
+        continue-on-error: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.version.outputs.version_name }}"
+          name: "v${{ steps.version.outputs.version_name }}"
+          body_path: /tmp/changelog.md
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
