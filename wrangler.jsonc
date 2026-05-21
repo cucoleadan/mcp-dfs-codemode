@@ -15,6 +15,7 @@
     "DATAFORSEO_FULL_RESPONSE": "false",
     "DATAFORSEO_SIMPLE_FILTER": "true",
     "MCP_ACCESS_TOKEN": null,
+    "ADMIN_TOKEN": null,
     "DATAFORSEO_USERNAME": "",
     "DATAFORSEO_PASSWORD": ""
   },
