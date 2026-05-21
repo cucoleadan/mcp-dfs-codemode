@@ -1,134 +1,104 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 
-// Helper to simulate URL path matching and credential resolution
-function resolveCredentials(
-  path: string,
-  env: {
-    MCP_ACCESS_TOKEN?: string | null;
-    DATAFORSEO_USERNAME?: string;
-    DATAFORSEO_PASSWORD?: string;
-    CRED_CONFIG?: { get: (key: string) => Promise<Record<string, string> | null> };
-  },
-): { username?: string; password?: string; error?: string; status?: number } {
-  const isTokenPath = path.startsWith("/mcp/");
-  const isPlainMCP = path === "/mcp";
+interface TokenEntry {
+  username: string;
+  password: string;
+  name: string;
+  created_at: string;
+  expires_at: string | null;
+}
 
-  if (isTokenPath) {
+interface MockKV {
+  get: (key: string) => Promise<TokenEntry | null>;
+}
+
+function expired(e: TokenEntry): boolean {
+  return !!e.expires_at && new Date(e.expires_at).getTime() < Date.now();
+}
+
+function isTokenEntry(v: unknown): v is TokenEntry {
+  const r = v as Partial<TokenEntry> | null;
+  return !!r && typeof r === "object" && typeof r.username === "string" && typeof r.password === "string" && typeof r.name === "string";
+}
+
+async function resolveCredentials(path: string, kv?: MockKV): Promise<{ username?: string; password?: string; error?: string; status?: number }> {
+  if (path.startsWith("/mcp/")) {
     const token = path.slice(5);
     if (!token) return { error: "Not found", status: 404 };
+    if (!kv) return { error: "Credential store is not configured", status: 500 };
 
-    if (env.MCP_ACCESS_TOKEN) {
-      if (token !== env.MCP_ACCESS_TOKEN) {
-        return { error: "Invalid access token", status: 401 };
-      }
-      return { username: env.DATAFORSEO_USERNAME, password: env.DATAFORSEO_PASSWORD };
-    }
+    const stored = await kv.get(token);
+    if (!isTokenEntry(stored)) return { error: "Invalid access token", status: 401 };
+    if (expired(stored)) return { error: "Token has expired", status: 401 };
 
-    // KV mode would be tested separately
-    return { error: "No credential source", status: 500 };
+    return { username: stored.username, password: stored.password };
   }
 
-  if (isPlainMCP) {
-    if (env.MCP_ACCESS_TOKEN) {
-      return { error: "Access token required. Use /mcp/<your-token>", status: 401 };
-    }
-    if (env.DATAFORSEO_USERNAME && env.DATAFORSEO_PASSWORD) {
-      return { username: env.DATAFORSEO_USERNAME, password: env.DATAFORSEO_PASSWORD };
-    }
-    return { error: "Not found", status: 404 };
+  if (path === "/mcp") {
+    return { error: "Access token required", status: 401 };
   }
 
   return { error: "Not found", status: 404 };
 }
 
-describe("Auth: URL token resolution", () => {
-  it("allows /mcp/<token> when MCP_ACCESS_TOKEN is set", () => {
-    const result = resolveCredentials("/mcp/sk-secret", {
-      MCP_ACCESS_TOKEN: "sk-secret",
-      DATAFORSEO_USERNAME: "user@example.com",
-      DATAFORSEO_PASSWORD: "pass123",
-    });
-    expect(result.username).toBe("user@example.com");
-    expect(result.password).toBe("pass123");
+const validEntry: TokenEntry = {
+  username: "kv@user.com",
+  password: "kv-pass",
+  name: "Test Token",
+  created_at: new Date().toISOString(),
+  expires_at: null,
+};
+
+describe("Auth: admin-created KV token resolution", () => {
+  it("resolves credentials from KV when /mcp/<token> matches", async () => {
+    const kv: MockKV = { get: async (key) => key === "sk-valid-token" ? validEntry : null };
+    const result = await resolveCredentials("/mcp/sk-valid-token", kv);
+    expect(result.username).toBe("kv@user.com");
+    expect(result.password).toBe("kv-pass");
   });
 
-  it("rejects /mcp/<wrong-token> when MCP_ACCESS_TOKEN is set", () => {
-    const result = resolveCredentials("/mcp/sk-wrong", {
-      MCP_ACCESS_TOKEN: "sk-secret",
-    });
+  it("rejects token not found in KV", async () => {
+    const kv: MockKV = { get: async () => null };
+    const result = await resolveCredentials("/mcp/sk-nonexistent", kv);
     expect(result.error).toBe("Invalid access token");
     expect(result.status).toBe(401);
   });
 
-  it("rejects plain /mcp when MCP_ACCESS_TOKEN is set", () => {
-    const result = resolveCredentials("/mcp", {
-      MCP_ACCESS_TOKEN: "sk-secret",
-    });
-    expect(result.error).toContain("Access token required");
+  it("rejects expired KV tokens", async () => {
+    const kv: MockKV = { get: async () => ({ ...validEntry, expires_at: new Date(Date.now() - 1000).toISOString() }) };
+    const result = await resolveCredentials("/mcp/sk-expired", kv);
+    expect(result.error).toBe("Token has expired");
     expect(result.status).toBe(401);
   });
 
-  it("allows plain /mcp when no MCP_ACCESS_TOKEN is configured", () => {
-    const result = resolveCredentials("/mcp", {
-      DATAFORSEO_USERNAME: "user@example.com",
-      DATAFORSEO_PASSWORD: "pass123",
-    });
-    expect(result.username).toBe("user@example.com");
-    expect(result.password).toBe("pass123");
+  it("rejects malformed KV values", async () => {
+    const kv = { get: async () => ({ username: "bad" }) } as unknown as MockKV;
+    const result = await resolveCredentials("/mcp/sk-bad", kv);
+    expect(result.error).toBe("Invalid access token");
+    expect(result.status).toBe(401);
   });
 
-  it("returns 404 for /mcp/<empty-token>", () => {
-    const result = resolveCredentials("/mcp/", {});
+  it("rejects /mcp/<token> when KV is missing", async () => {
+    const result = await resolveCredentials("/mcp/sk-token");
+    expect(result.error).toBe("Credential store is not configured");
+    expect(result.status).toBe(500);
+  });
+
+  it("rejects plain /mcp because admin-created tokens are required", async () => {
+    const result = await resolveCredentials("/mcp");
+    expect(result.error).toBe("Access token required");
+    expect(result.status).toBe(401);
+  });
+
+  it("returns 404 for /mcp/<empty-token>", async () => {
+    const result = await resolveCredentials("/mcp/");
     expect(result.error).toBe("Not found");
     expect(result.status).toBe(404);
   });
 
-  it("returns 404 for unknown paths", () => {
-    const result = resolveCredentials("/other", {});
+  it("returns 404 for unknown paths", async () => {
+    const result = await resolveCredentials("/other");
     expect(result.error).toBe("Not found");
     expect(result.status).toBe(404);
-  });
-
-  it("rejects when no credentials configured at all", () => {
-    const result = resolveCredentials("/mcp", {});
-    expect(result.error).toBe("Not found");
-  });
-});
-
-describe("Auth: KV credential resolution", () => {
-  it("resolves credentials from KV when token matches", async () => {
-    const mockKV = {
-      async get(key: string) {
-        if (key === "sk-valid-token") {
-          return JSON.stringify({ username: "kv@user.com", password: "kv-pass" });
-        }
-        return null;
-      },
-    };
-    // Simulate the async KV lookup
-    const stored = await mockKV.get("sk-valid-token");
-    const parsed = stored ? JSON.parse(stored) : null;
-    expect(parsed?.username).toBe("kv@user.com");
-    expect(parsed?.password).toBe("kv-pass");
-  });
-
-  it("rejects token not found in KV", async () => {
-    const mockKV = {
-      async get() {
-        return null;
-      },
-    };
-    const stored = await mockKV.get("sk-nonexistent");
-    expect(stored).toBeNull();
-  });
-});
-
-describe("Auth: health endpoint", () => {
-  it("rejects health at /mcp path", () => {
-    const result = resolveCredentials("/mcp", {
-      DATAFORSEO_USERNAME: "user@example.com",
-      DATAFORSEO_PASSWORD: "pass123",
-    });
-    expect(result.username).toBe("user@example.com");
   });
 });

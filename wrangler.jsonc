@@ -14,10 +14,7 @@
   "vars": {
     "ENABLED_MODULES": null,
     "DATAFORSEO_FULL_RESPONSE": "false",
-    "DATAFORSEO_SIMPLE_FILTER": "true",
-    "MCP_ACCESS_TOKEN": null,
-    "DATAFORSEO_USERNAME": "",
-    "DATAFORSEO_PASSWORD": ""
+    "DATAFORSEO_SIMPLE_FILTER": "true"
   },
   "worker_loaders": [
     {

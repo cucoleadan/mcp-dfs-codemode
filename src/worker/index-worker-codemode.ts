@@ -434,22 +434,14 @@ export default {
     if (path.startsWith("/mcp/")) {
       const token = path.slice(5);
       if (!token) return new Response("Not found", { status: 404 });
-      if (env.MCP_ACCESS_TOKEN) {
-        if (token !== env.MCP_ACCESS_TOKEN) return jsonError(-32001, "Invalid access token", 401);
-        dfsUsername = env.DATAFORSEO_USERNAME;
-        dfsPassword = env.DATAFORSEO_PASSWORD;
-      } else {
-        if (!kv) return jsonError(-32001, "No credential source configured", 500);
-        const stored = await kv.get(token, "json") as TokenEntry | null;
-        if (!stored) return jsonError(-32001, "Invalid access token", 401);
-        if (expired(stored)) return jsonError(-32001, "Token has expired", 401);
-        dfsUsername = stored.username;
-        dfsPassword = stored.password;
-      }
+      if (!kv) return jsonError(-32001, "Credential store is not configured", 500);
+      const stored = await kv.get(token, "json") as TokenEntry | null;
+      if (!isTokenEntry(stored)) return jsonError(-32001, "Invalid access token", 401);
+      if (expired(stored)) return jsonError(-32001, "Token has expired", 401);
+      dfsUsername = stored.username;
+      dfsPassword = stored.password;
     } else if (path === "/mcp") {
-      if (env.MCP_ACCESS_TOKEN || kv) return jsonError(-32001, "Access token required. Use /mcp/<your-token>", 401);
-      dfsUsername = env.DATAFORSEO_USERNAME;
-      dfsPassword = env.DATAFORSEO_PASSWORD;
+      return jsonError(-32001, "Access token required. Create a token in /admin, then use /mcp/<your-token>", 401);
     }
 
     if (!dfsUsername || !dfsPassword) return new Response("Not found", { status: 404 });

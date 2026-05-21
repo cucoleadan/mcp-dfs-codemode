@@ -116,27 +116,19 @@ Click **Logout** in the admin navbar. This clears both the cookie and localStora
 - **Copy MCP URL**: Click **Copy URL** on any token row to get the full MCP endpoint.
 - **Delete tokens**: Click **Delete** to revoke a token.
 
-## Auth modes
+## Auth model
 
-### Mode A: Single-tenant (your DFS account via secrets)
+No DataForSEO credentials are configured with Worker environment variables. The Worker uses the admin panel and KV only:
 
-Set these as **secrets** in Cloudflare Dashboard → Workers → mcp-dfs-codemode → Settings:
-
-| Secret | Description |
-|--------|-------------|
-| `DATAFORSEO_USERNAME` | Your DataForSEO email |
-| `DATAFORSEO_PASSWORD` | Your DataForSEO password |
-| `MCP_ACCESS_TOKEN` | A secret token users must include in the URL path |
-
-Users access via: `https://<worker>/mcp/<your-mcp-access-token>`
-
-### Mode B: Multi-tenant (each user brings their own DFS creds — default)
-
-No secrets needed. Use the admin panel to create tokens. Each token maps to its own DataForSEO credentials.
+- Create an admin token during first-time setup
+- Log in to `/admin`
+- Create MCP tokens in the admin panel
+- Each MCP token maps to its own DataForSEO email/password in KV
+- Use `/mcp/<token>` from your MCP client
 
 ```
-/mcp/<token> → check MCP_ACCESS_TOKEN env var → check KV → return DFS creds or 401
-/mcp         → backward compat (only works without token auth configured)
+/mcp/<token> → check KV → return stored DataForSEO credentials or 401
+/mcp         → rejected; create a token in /admin and use /mcp/<token>
 ```
 
 ## Client setup
@@ -192,10 +184,10 @@ Point your client to `https://<worker>/mcp/sk-your-token`. The token in the URL 
 | `POST /admin/login` | POST | Validate token, set cookie | None |
 | `POST /admin/setup` | POST | First-time admin token save | KV only if empty |
 | `POST /admin/tokens` | POST | Create a new API token | Cookie / token |
-| `GET /admin/tokens` | GET | List all API tokens | Cookie / token |
-| `DELETE /admin/tokens?token=X` | DELETE | Delete an API token | Cookie / token |
+| `GET /admin/token-list` | GET | Render token list partial | Cookie / token |
+| `DELETE /admin/tokens?key=X` | DELETE | Delete an API token | Cookie / token |
 | `POST /mcp/<token>` | POST | MCP Streamable HTTP | Token in path |
-| `POST /mcp` | POST | MCP (backward compat) | Env var |
+| `POST /mcp` | POST | Rejected; token path required | None |
 
 ## CLI deploy
 
