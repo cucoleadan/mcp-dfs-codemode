@@ -424,7 +424,7 @@ export default {
       if (!kv) return new Response(`<html><body style="font-family:system-ui;padding:40px;text-align:center"><h2>MCP DFS Codemode</h2><p>KV not configured. Add CRED_CONFIG binding.</p></body></html>`, { headers: { "Content-Type": "text/html" } });
       const stored = await kv.get(ADMIN_KV_KEY);
       if (!stored) return new Response(SETUP_PAGE_HTML(baseUrl), { headers: { "Content-Type": "text/html" } });
-      return Response.redirect("/admin", 302);
+      return Response.redirect(`${baseUrl}/admin`, 302);
     }
 
     // Resolve credentials for MCP
